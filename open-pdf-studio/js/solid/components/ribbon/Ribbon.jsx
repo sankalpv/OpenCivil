@@ -9,6 +9,7 @@ import HelpTab from './HelpTab.jsx';
 import FormatTab from './FormatTab.jsx';
 import ArrangeTab from './ArrangeTab.jsx';
 import AITab from './AITab.jsx';
+import AecTab from './AecTab.jsx';
 import { activeTab, setActiveTab, contextualTabsVisible } from '../../stores/ribbonStore.js';
 import { openAppMenu } from '../../../ui/chrome/menus.js';
 import { useTranslation } from '../../../i18n/useTranslation.js';
@@ -36,6 +37,9 @@ export default function Ribbon() {
         <RibbonTab label={t('tabs.organize')} dataTab="organize"
           isActive={activeTab() === 'organize'}
           onClick={() => setActiveTab('organize')} />
+        <RibbonTab label="AEC" dataTab="aec"
+          isActive={activeTab() === 'aec'}
+          onClick={() => setActiveTab('aec')} />
         <RibbonTab label={t('tabs.ai') || 'AI'} dataTab="ai"
           isActive={activeTab() === 'ai'}
           onClick={() => setActiveTab('ai')} />
@@ -59,6 +63,7 @@ export default function Ribbon() {
         <Match when={activeTab() === 'comment'}><CommentTab /></Match>
         <Match when={activeTab() === 'view'}><ViewTab /></Match>
         <Match when={activeTab() === 'organize'}><OrganizeTab /></Match>
+        <Match when={activeTab() === 'aec'}><AecTab /></Match>
         <Match when={activeTab() === 'ai'}><ErrorBoundary fallback={<div class="ribbon-content active">AI tab unavailable</div>}><AITab /></ErrorBoundary></Match>
         <Match when={activeTab() === 'help'}><HelpTab /></Match>
         <Match when={activeTab() === 'format'}><FormatTab /></Match>

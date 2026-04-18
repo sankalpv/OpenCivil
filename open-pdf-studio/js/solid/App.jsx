@@ -18,6 +18,7 @@ import { DockedToolPalette, FloatingToolPalette, DockTargets, PaletteContextMenu
 import { DockedExtPalette, FloatingExtPalette, ExtDockTargets } from './components/ExtensionToolPalette.jsx';
 import { DockedSymbolPalette, FloatingSymbolPalette, SymbolSettingsDialog } from './components/SymbolPalette.jsx';
 import SchedulePanel from './components/SchedulePanel.jsx';
+import AecDataPanel from './components/AecDataPanel.jsx';
 import AIPanel from './components/AIPanel.jsx';
 import { getRegisteredPalettes } from '../plugins/palette-registry.js';
 import { leftOrder, rightOrder } from './stores/paletteOrder.js';
@@ -122,6 +123,7 @@ function DesktopApp() {
       <PaletteContextMenu />
       <SymbolSettingsDialog />
       <SchedulePanel />
+      <AecDataPanel />
       <ErrorBoundary fallback={null}><AIPanel /></ErrorBoundary>
       <LoadingOverlay />
     </>
