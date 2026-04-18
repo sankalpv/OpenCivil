@@ -9,6 +9,8 @@ import {
   aecIsExtracting, aecStatusMessage,
   runExtraction, updateSearch, getFilteredRecords, downloadCsv,
 } from '../stores/aecStore.js';
+import { downloadXlsx } from '../../aec/xlsx-export.js';
+import { downloadCivil3d } from '../../aec/civil3d-export.js';
 
 // Record type display labels and colors
 const TYPE_LABELS = {
@@ -75,12 +77,28 @@ export default function AecDataPanel() {
             {aecIsExtracting() ? '⏳ Extracting...' : '📊 Extract Data'}
           </button>
           <button onClick={downloadCsv} disabled={aecRecords().length === 0} style={{
-            padding: '4px 12px', background: 'var(--btn-bg, #e5e7eb)',
+            padding: '4px 10px', background: 'var(--btn-bg, #e5e7eb)',
             color: 'var(--text-color, #333)', border: '1px solid var(--border-color, #ddd)',
-            'border-radius': '4px', cursor: 'pointer', 'font-size': '11px',
+            'border-radius': '4px', cursor: 'pointer', 'font-size': '10px',
             opacity: aecRecords().length === 0 ? '0.5' : '1',
           }}>
-            📋 Export CSV
+            📋 CSV
+          </button>
+          <button onClick={() => downloadXlsx(aecRecords())} disabled={aecRecords().length === 0} style={{
+            padding: '4px 10px', background: 'var(--btn-bg, #e5e7eb)',
+            color: 'var(--text-color, #333)', border: '1px solid var(--border-color, #ddd)',
+            'border-radius': '4px', cursor: 'pointer', 'font-size': '10px',
+            opacity: aecRecords().length === 0 ? '0.5' : '1',
+          }}>
+            📗 Excel
+          </button>
+          <button onClick={() => downloadCivil3d(aecRecords())} disabled={aecRecords().length === 0} style={{
+            padding: '4px 10px', background: 'var(--btn-bg, #e5e7eb)',
+            color: 'var(--text-color, #333)', border: '1px solid var(--border-color, #ddd)',
+            'border-radius': '4px', cursor: 'pointer', 'font-size': '10px',
+            opacity: aecRecords().length === 0 ? '0.5' : '1',
+          }}>
+            🏗️ Civil3D
           </button>
         </div>
 

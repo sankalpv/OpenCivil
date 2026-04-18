@@ -1,11 +1,14 @@
 // OpenCivil — AEC Ribbon Tab
-// Provides AEC-specific tools: Extract Data, Export CSV, measurement export,
-// AEC stamps, and toggle AEC panel.
+// Provides AEC-specific tools: Extract Data, Export (CSV/XLSX/Civil3D),
+// measurement export, AEC stamps, and toggle AEC panel.
 
 import RibbonGroup from './RibbonGroup.jsx';
 import RibbonButton from './RibbonButton.jsx';
-import { runExtraction, downloadCsv, aecPanelVisible, setAecPanelVisible } from '../../stores/aecStore.js';
+import RibbonButtonStack from './RibbonButtonStack.jsx';
+import { runExtraction, downloadCsv, aecRecords, aecPanelVisible, setAecPanelVisible } from '../../stores/aecStore.js';
 import { downloadMeasurementsCsv } from '../../../aec/measurement-export.js';
+import { downloadXlsx } from '../../../aec/xlsx-export.js';
+import { downloadCivil3d } from '../../../aec/civil3d-export.js';
 import { AEC_STAMPS } from '../../../annotations/stamps.js';
 import { getActiveDocument } from '../../../core/state.js';
 import { createAnnotation } from '../../../annotations/factory.js';
@@ -15,21 +18,12 @@ import { redrawAnnotations, redrawContinuous } from '../../../annotations/render
 function placeAecStamp(stamp) {
   const doc = getActiveDocument();
   if (!doc?.pdfDoc) return;
-
   const ann = createAnnotation({
-    type: 'stamp',
-    page: doc.currentPage || 1,
-    x: 100, y: 100,
-    width: 180, height: 50,
-    stampName: stamp.name,
-    stampText: stamp.text,
-    stampColor: stamp.color,
-    color: stamp.color,
-    strokeColor: stamp.color,
-    opacity: 0.85,
-    rotation: 0,
+    type: 'stamp', page: doc.currentPage || 1,
+    x: 100, y: 100, width: 180, height: 50,
+    stampName: stamp.name, stampText: stamp.text, stampColor: stamp.color,
+    color: stamp.color, strokeColor: stamp.color, opacity: 0.85, rotation: 0,
   });
-
   doc.annotations.push(ann);
   recordAdd(ann);
   if (doc.viewMode === 'continuous') redrawContinuous();
@@ -44,8 +38,13 @@ export default function AecTab() {
         <RibbonButton label="Data Panel" icon="📋" onClick={() => setAecPanelVisible(!aecPanelVisible())} />
       </RibbonGroup>
 
-      <RibbonGroup label="Export">
-        <RibbonButton label="AEC Data CSV" icon="📥" onClick={downloadCsv} />
+      <RibbonGroup label="Export Data">
+        <RibbonButton label="CSV" icon="📥" onClick={downloadCsv} />
+        <RibbonButton label="Excel" icon="📗" onClick={() => downloadXlsx(aecRecords())} />
+        <RibbonButton label="Civil 3D" icon="🏗️" onClick={() => downloadCivil3d(aecRecords())} />
+      </RibbonGroup>
+
+      <RibbonGroup label="Measurements">
         <RibbonButton label="Measures CSV" icon="📐" onClick={downloadMeasurementsCsv} />
       </RibbonGroup>
 
