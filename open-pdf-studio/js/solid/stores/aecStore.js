@@ -5,6 +5,7 @@ import { createSignal } from 'solid-js';
 import { extractAecData, recordsToCsv, searchSpans, summarizeRecords } from '../../aec/aec-extractor.js';
 import { groupByBoundingBox, structuresToCsv } from '../../aec/spatial-grouper.js';
 import { ocrAllPages } from '../../aec/ocr-extraction.js';
+import { aiExtractAllPages } from '../../aec/bedrock-ocr.js';
 import { extractTextSpans } from '../../text/rust-text-extraction.js';
 import { state, getActiveDocument } from '../../core/state.js';
 import { isTauri } from '../../core/platform.js';
@@ -230,6 +231,51 @@ function downloadStructuresCsv() {
   URL.revokeObjectURL(url);
 }
 
+/**
+ * Run AI-powered extraction via Claude Opus 4.7 on Bedrock.
+ */
+async function runAiExtraction() {
+  const doc = getActiveDocument();
+  if (!doc?.pdfDoc) {
+    setAecStatusMessage('No document loaded');
+    return;
+  }
+
+  setAecIsExtracting(true);
+  setAecStatusMessage('AI: Rendering page for Claude Opus 4.7...');
+  setAecPanelVisible(true);
+
+  try {
+    const allSpans = await aiExtractAllPages((page, total, msg) => {
+      setAecStatusMessage(msg);
+    });
+
+    setAecTextSpans(allSpans);
+    console.log('[AI] Total spans:', allSpans.length);
+    setAecStatusMessage(`AI: Parsing ${allSpans.length} spans for AEC data...`);
+
+    const records = extractAecData(allSpans);
+    console.log('[AI] Records found:', records.length);
+    setAecRecords(records);
+
+    const summary = summarizeRecords(records);
+    setAecSummary(summary);
+
+    const { structures, ungrouped } = groupByBoundingBox(records);
+    setAecStructures(structures);
+    setAecUngrouped(ungrouped);
+
+    setAecStatusMessage(
+      `AI: ${records.length} records → ${structures.length} structures (Claude Opus 4.7)`
+    );
+  } catch (err) {
+    console.error('AI extraction error:', err);
+    setAecStatusMessage(`AI error: ${err.message || err}`);
+  } finally {
+    setAecIsExtracting(false);
+  }
+}
+
 export {
   aecPanelVisible, setAecPanelVisible,
   aecRecords, setAecRecords,
@@ -250,4 +296,5 @@ export {
   downloadCsv,
   downloadStructuresCsv,
   runOcrExtraction,
+  runAiExtraction,
 };
