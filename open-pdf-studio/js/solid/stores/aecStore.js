@@ -3,8 +3,9 @@
 
 import { createSignal } from 'solid-js';
 import { extractAecData, recordsToCsv, searchSpans, summarizeRecords } from '../../aec/aec-extractor.js';
-import { extractTextSpans, extractTextSpansBatch } from '../../text/rust-text-extraction.js';
+import { extractTextSpans } from '../../text/rust-text-extraction.js';
 import { state, getActiveDocument } from '../../core/state.js';
+import { isTauri } from '../../core/platform.js';
 
 // Panel visibility
 const [aecPanelVisible, setAecPanelVisible] = createSignal(false);
@@ -20,31 +21,70 @@ const [aecIsExtracting, setAecIsExtracting] = createSignal(false);
 const [aecStatusMessage, setAecStatusMessage] = createSignal('No data extracted yet');
 
 /**
+ * Extract text from a single page using PDF.js getTextContent().
+ * Fallback for browser mode where Rust backend is not available.
+ */
+async function extractTextViaPdfJs(pdfDoc, pageNum) {
+  const page = await pdfDoc.getPage(pageNum);
+  const textContent = await page.getTextContent();
+  const spans = [];
+  for (const item of textContent.items) {
+    if (!item.str || !item.str.trim()) continue;
+    spans.push({
+      text: item.str,
+      x: item.transform ? item.transform[4] : 0,
+      y: item.transform ? item.transform[5] : 0,
+      width: item.width || 0,
+      height: item.height || 0,
+      font_size: item.transform ? Math.abs(item.transform[3]) : 12,
+      page: pageNum,
+    });
+  }
+  return spans;
+}
+
+/**
  * Run AEC data extraction on all pages of the current document.
- * Uses Rust text extraction for maximum accuracy on vector PDFs.
+ * Uses Rust text extraction when available (Tauri), falls back to PDF.js.
  */
 async function runExtraction() {
   const doc = getActiveDocument();
-  if (!doc || !doc.filePath) {
+  if (!doc) {
     setAecStatusMessage('No document open');
+    return;
+  }
+
+  // Need either filePath (Tauri) or pdfDoc (PDF.js) to extract
+  if (!doc.filePath && !doc.pdfDoc) {
+    setAecStatusMessage('No document loaded');
     return;
   }
 
   setAecIsExtracting(true);
   setAecStatusMessage('Extracting text from all pages...');
+  setAecPanelVisible(true); // Auto-show the panel
 
   try {
-    const totalPages = doc.pageCount || 1;
+    const totalPages = doc.pdfDoc ? doc.pdfDoc.numPages : (doc.pageCount || 1);
     const allSpans = [];
+    const useRust = isTauri() && doc.filePath;
 
-    // Extract text from all pages using the Rust backend
     for (let page = 1; page <= totalPages; page++) {
       setAecStatusMessage(`Extracting page ${page} of ${totalPages}...`);
-      const spans = await extractTextSpans(doc.filePath, page);
-      // Tag each span with page number
-      for (const s of spans) {
-        allSpans.push({ ...s, page });
+
+      let spans;
+      if (useRust) {
+        // Rust backend (fast, Tauri-only)
+        spans = await extractTextSpans(doc.filePath, page);
+        spans = spans.map(s => ({ ...s, page }));
+      } else if (doc.pdfDoc) {
+        // PDF.js fallback (works in browser)
+        spans = await extractTextViaPdfJs(doc.pdfDoc, page);
+      } else {
+        spans = [];
       }
+
+      allSpans.push(...spans);
     }
 
     setAecTextSpans(allSpans);
@@ -58,8 +98,9 @@ async function runExtraction() {
     const summary = summarizeRecords(records);
     setAecSummary(summary);
 
+    const method = useRust ? 'Rust' : 'PDF.js';
     setAecStatusMessage(
-      `Found ${records.length} AEC records from ${allSpans.length} text spans (${totalPages} pages)`
+      `Found ${records.length} AEC records from ${allSpans.length} text spans (${totalPages} pages, via ${method})`
     );
   } catch (err) {
     console.error('AEC extraction error:', err);
