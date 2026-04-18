@@ -25,8 +25,8 @@ const PATTERNS = {
   // SDMH4, SDMH4A, SDMH-5, SSMH, STMH-1, MH-1, MH 2, MH#3
   manhole: /((?:SD|SS|ST|STSD)?MH)\s*[-#]?\s*(\d+[A-Z]?)/gi,
 
-  // CB, CB-1, CB #2, or standalone CB followed by RIM/IE data
-  catchBasin: /CB\s*[-#]?\s*(\d*[A-Z]?)/gi,
+  // CB, CB-1, CB #2, SDCB, SDCB-1, SSCB, standalone CB
+  catchBasin: /((?:SD|SS)?CB)\s*[-#]?\s*(\d*[A-Z]?)/gi,
 
   // ── RIM Elevations ──
   // RIM=143.96, RIM-144.92, RIM =155.05, RIM: 142.50
@@ -119,11 +119,12 @@ export function extractAecData(spans, defaultPage = 1) {
       records.push({ type: 'manhole', fields: { id: prefix + num, prefix, number: num }, source });
     }
 
-    // ── Catch Basin ──
+    // ── Catch Basin (CB, SDCB, SSCB) ──
     const cbRe = new RegExp(PATTERNS.catchBasin.source, PATTERNS.catchBasin.flags);
     while ((match = cbRe.exec(text)) !== null) {
-      const num = match[1] || '';
-      records.push({ type: 'catchBasin', fields: { id: 'CB' + (num ? '-' + num : ''), number: num }, source });
+      const prefix = match[1].toUpperCase(); // CB, SDCB, SSCB
+      const num = match[2] || '';
+      records.push({ type: 'catchBasin', fields: { id: prefix + (num ? num : ''), prefix, number: num }, source });
     }
 
     // ── RIM elevation (dedicated, high priority) ──

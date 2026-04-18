@@ -5,7 +5,7 @@
 import RibbonGroup from './RibbonGroup.jsx';
 import RibbonButton from './RibbonButton.jsx';
 import RibbonButtonStack from './RibbonButtonStack.jsx';
-import { runExtraction, downloadCsv, aecRecords, aecPanelVisible, setAecPanelVisible } from '../../stores/aecStore.js';
+import { runExtraction, runOcrExtraction, downloadCsv, aecRecords, aecPanelVisible, setAecPanelVisible } from '../../stores/aecStore.js';
 import { downloadMeasurementsCsv } from '../../../aec/measurement-export.js';
 import { downloadXlsx } from '../../../aec/xlsx-export.js';
 import { downloadCivil3d } from '../../../aec/civil3d-export.js';
@@ -35,6 +35,7 @@ export default function AecTab() {
     <div class="ribbon-content active">
       <RibbonGroup label="Extract">
         <RibbonButton label="Extract Data" icon="📊" onClick={runExtraction} large={true} />
+        <RibbonButton label="OCR Extract" icon="🔍" onClick={runOcrExtraction} />
         <RibbonButton label="Data Panel" icon="📋" onClick={() => setAecPanelVisible(!aecPanelVisible())} />
       </RibbonGroup>
 

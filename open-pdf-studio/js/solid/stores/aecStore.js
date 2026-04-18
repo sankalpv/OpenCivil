@@ -4,6 +4,7 @@
 import { createSignal } from 'solid-js';
 import { extractAecData, recordsToCsv, searchSpans, summarizeRecords } from '../../aec/aec-extractor.js';
 import { groupByBoundingBox, structuresToCsv } from '../../aec/spatial-grouper.js';
+import { ocrAllPages } from '../../aec/ocr-extraction.js';
 import { extractTextSpans } from '../../text/rust-text-extraction.js';
 import { state, getActiveDocument } from '../../core/state.js';
 import { isTauri } from '../../core/platform.js';
@@ -92,10 +93,15 @@ async function runExtraction() {
     }
 
     setAecTextSpans(allSpans);
+    console.log('[AEC DEBUG] Total text spans extracted:', allSpans.length);
+    console.log('[AEC DEBUG] First 10 spans:', allSpans.slice(0, 10).map(s => s.text));
+    console.log('[AEC DEBUG] Sample span:', allSpans[0]);
     setAecStatusMessage(`Parsing ${allSpans.length} text spans for AEC data...`);
 
     // Run AEC regex extraction
     const records = extractAecData(allSpans);
+    console.log('[AEC DEBUG] Records found:', records.length);
+    console.log('[AEC DEBUG] Record types:', records.map(r => r.type));
     setAecRecords(records);
 
     // Build summary
@@ -165,6 +171,51 @@ function downloadCsv() {
 }
 
 /**
+ * Run OCR-based extraction (for PDFs with text drawn as vector paths).
+ */
+async function runOcrExtraction() {
+  const doc = getActiveDocument();
+  if (!doc?.pdfDoc) {
+    setAecStatusMessage('No document loaded');
+    return;
+  }
+
+  setAecIsExtracting(true);
+  setAecStatusMessage('OCR: Initializing Tesseract...');
+  setAecPanelVisible(true);
+
+  try {
+    const allSpans = await ocrAllPages((page, total, msg) => {
+      setAecStatusMessage(msg);
+    });
+
+    setAecTextSpans(allSpans);
+    console.log('[OCR] Total words extracted:', allSpans.length);
+    setAecStatusMessage(`OCR: Parsing ${allSpans.length} words for AEC data...`);
+
+    const records = extractAecData(allSpans);
+    console.log('[OCR] Records found:', records.length);
+    setAecRecords(records);
+
+    const summary = summarizeRecords(records);
+    setAecSummary(summary);
+
+    const { structures, ungrouped } = groupByBoundingBox(records);
+    setAecStructures(structures);
+    setAecUngrouped(ungrouped);
+
+    setAecStatusMessage(
+      `OCR: ${records.length} records → ${structures.length} structures (${allSpans.length} words)`
+    );
+  } catch (err) {
+    console.error('OCR extraction error:', err);
+    setAecStatusMessage(`OCR error: ${err.message || err}`);
+  } finally {
+    setAecIsExtracting(false);
+  }
+}
+
+/**
  * Download structures as CSV.
  */
 function downloadStructuresCsv() {
@@ -198,4 +249,5 @@ export {
   getExportCsv,
   downloadCsv,
   downloadStructuresCsv,
+  runOcrExtraction,
 };
