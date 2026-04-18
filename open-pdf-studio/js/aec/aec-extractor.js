@@ -23,72 +23,63 @@ const PATTERNS = {
 
   // ── Structures ──
   // SDMH4, SDMH4A, SDMH-5, SSMH, STMH-1, MH-1, MH 2, MH#3
-  manhole: /\b((?:SD|SS|ST|STSD)?MH)\s*[-#]?\s*(\d+[A-Z]?)\b/gi,
+  manhole: /((?:SD|SS|ST|STSD)?MH)\s*[-#]?\s*(\d+[A-Z]?)/gi,
 
   // CB, CB-1, CB #2, or standalone CB followed by RIM/IE data
-  catchBasin: /\bCB\s*[-#]?\s*(\d*[A-Z]?)\b/gi,
+  catchBasin: /CB\s*[-#]?\s*(\d*[A-Z]?)/gi,
 
   // ── RIM Elevations ──
   // RIM=143.96, RIM-144.92, RIM =155.05, RIM: 142.50
-  rim: /\bRIM\s*[=:\-]\s*(\d{2,4}\.\d{1,3})\b/gi,
+  rim: /RIM\s*[=:\-]\s*(\d{2,4}\.\d{1,3})/gi,
 
-  // ── IE (Invert Elevation) — the #1 missed pattern ──
-  // IE 8" PVC (S)=142.99, IE 12" CONC (E)=140.62, IE=98.50, IE: 97.25
-  // Captures: full match, pipe size (opt), pipe material (opt), direction (opt), elevation
-  ie: /\bIE\s+(?:(\d{1,2})[""]\s*)?([\w]+)?\s*\(([NSEW]+)\)\s*[=:]\s*(\d{2,4}\.\d{1,3})/gi,
+  // ── IE (Invert Elevation) ──
+  // IE 8" PVC (S)=142.99, IE 12" CONC (E)=140.62
+  ie: /IE\s+(?:(\d{1,2})[""]\s*)?([\w]+)?\s*\(([NSEW]+)\)\s*[=:]\s*(\d{2,4}\.\d{1,3})/gi,
 
-  // Simple IE without pipe info: IE=98.50, IE: 97.25, IE 95.80
-  ieSimple: /\bIE\s*[=:]\s*(\d{2,4}\.\d{1,3})/gi,
+  // Simple IE without pipe info: IE=98.50, IE: 97.25
+  ieSimple: /IE\s*[=:]\s*(\d{2,4}\.\d{1,3})/gi,
 
   // ── INV (Invert) — traditional format ──
-  // INV IN 98.50, INV OUT 97.25, INVERT IN=98.50
-  invertIn: /\bINV(?:ERT)?\s*(?:IN|INLET)\s*[=:]?\s*(\d{2,4}\.\d{1,3})/gi,
-  invertOut: /\bINV(?:ERT)?\s*(?:OUT|OUTLET)\s*[=:]?\s*(\d{2,4}\.\d{1,3})/gi,
+  invertIn: /INV(?:ERT)?\s*(?:IN|INLET)\s*[=:]?\s*(\d{2,4}\.\d{1,3})/gi,
+  invertOut: /INV(?:ERT)?\s*(?:OUT|OUTLET)\s*[=:]?\s*(\d{2,4}\.\d{1,3})/gi,
 
   // ── BOTTOM OF STRUCTURE ──
-  // BOTTOM OF STRUCTURE=141.29, BOTTOM OF STRUCTURE= 139.02
-  bottomOfStructure: /\bBOTTOM\s+OF\s+STRUCTURE\s*[=:]\s*(\d{2,4}\.\d{1,3})/gi,
+  bottomOfStructure: /BOTTOM\s+OF\s+STRUCTURE\s*[=:]\s*(\d{2,4}\.\d{1,3})/gi,
 
   // ── CENTER OF CHANNEL ──
-  centerOfChannel: /\bCENTER\s+OF\s+CHANNEL\s*[=:]\s*(\d{2,4}\.\d{1,3})/gi,
+  centerOfChannel: /CENTER?\s+OF\s+CHANNEL\s*[=:]\s*(\d{2,4}\.\d{1,3})/gi,
 
   // ── Elevations (generic) ──
-  // EL 100.50, ELEV. 99.25
-  elevation: /\b(?:EL(?:EV)?\.?)\s*[=:]?\s*(\d{2,4}\.\d{1,3})/gi,
+  // EL 100.50, ELEV. 99.25, INV 98.00, RIM 102.5
+  elevation: /(?:EL(?:EV)?\.?\s*|INV\.?\s*|RIM\.?\s*)(\d{2,4}\.\d{1,3})/gi,
 
   // ── Pipe size ──
   // 8", 12", 30", 8-inch, 12 IN
-  pipeSize: /\b(\d{1,2})["""\u201d](?:\s*(?:DIA|Ø|0))?\b|\b(\d{1,2})[\s-]*(?:INCH|IN)\b/gi,
+  pipeSize: /(\d{1,2})["""\u201d](?:\s*(?:DIA|Ø|0))?|(\d{1,2})[\s-]*(?:IN(?:CH)?|in)/gi,
 
   // ── Pipe material ──
-  // PVC, RCP, HDPE, CMP, DIP, VCP, CONC, CONCRETE, STL (steel), SDR 35
-  pipeMaterial: /\b(PVC|RCP|HDPE|CMP|DIP|VCP|STL|SDR\s*\d+|CONC(?:RETE)?)\b/gi,
+  pipeMaterial: /(PVC|RCP|HDPE|CMP|DIP|VCP|STL|SDR\s*\d+|CONC(?:RETE)?)/gi,
 
   // ── Slope ──
-  // S=0.005, S=0.5%, 0.50%, S= 9.2%, @ 0.52%
-  slope: /\bS\s*=\s*(\d+\.?\d*%?)\b|(\d+\.\d+)\s*%/gi,
+  slope: /(?:S\s*=\s*|@\s*)(\d+\.?\d*%?)|(\d+\.\d+)\s*%/gi,
 
-  // ── Pipe length / pipe runs ──
-  // 249 LF, 14 LF, L=100', 200.5 LF, LENGTH = 75
-  pipeLength: /\b(\d+(?:\.\d+)?)\s*LF\b|(?:L(?:ENGTH)?\s*=\s*)(\d+(?:\.\d+)?)/gi,
+  // ── Pipe length ──
+  pipeLength: /(?:L(?:ENGTH)?\s*=\s*)?(\d+(?:\.\d+)?)\s*(?:LF)/gi,
 
-  // ── Compound pipe run (e.g., "249 LF 30" PVC, S=0.5%") ──
-  // Captures: length, pipe size, material, slope
-  pipeRun: /\b(\d+(?:\.\d+)?)\s*LF\s+(\d{1,2})[""]\s*[0Ø]?\s*(PVC|RCP|HDPE|STL|CONC)\s*,?\s*S\s*=\s*(\d+\.?\d*%?)/gi,
+  // ── Compound pipe run ──
+  pipeRun: /(\d+(?:\.\d+)?)\s*LF\s+(\d{1,2})[""]\s*[0Ø]?\s*(PVC|RCP|HDPE|STL|CONC)\s*,?\s*S\s*=\s*(\d+\.?\d*%?)/gi,
 
   // ── Water Valve ──
-  // WATER VALVE RIM=156.74, WATER VALVE\nRIM=143.96
-  waterValve: /\bWATER\s+VALVE?\b/gi,
+  waterValve: /WATER\s+VALVE?/gi,
 
   // TOP OF NUT= 154.64
-  topOfNut: /\bTOP\s+(?:OF\s+)?NUT\s*[=:]\s*(\d{2,4}\.\d{1,3})/gi,
+  topOfNut: /TOP\s+(?:OF\s+)?NUT\s*[=:]\s*(\d{2,4}\.\d{1,3})/gi,
 
   // ── Scale ──
-  // SCALE: 1"=20', 1"=5'
-  scale: /\b(?:SCALE\s*[:=]?\s*)?1["""\u201d]\s*=\s*(\d+)[''\u2019]/gi,
+  scale: /(?:SCALE\s*[:=]?\s*)?1["""\u201d]\s*=\s*(\d+)[''\u2019]/gi,
 
   // ── Force Main ──
-  forceMain: /\bFORCE\s+MAIN\b/gi,
+  forceMain: /FORCE\s+MAIN/gi,
 };
 
 // ============================================================
