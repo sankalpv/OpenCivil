@@ -133,7 +133,11 @@ async function callBedrock(imageBase64, prompt) {
     throw new Error('Bedrock API key not configured. Set VITE_BEDROCK_API_KEY in .env or use setBedrockApiKey()');
   }
 
-  const url = `https://bedrock-runtime.${config.region}.amazonaws.com/model/${config.modelId}/converse`;
+  // Use Vite proxy in dev mode to avoid CORS, direct URL in production/Tauri
+  const isDev = import.meta.env.DEV;
+  const url = isDev
+    ? `/api/bedrock/model/${config.modelId}/converse`
+    : `https://bedrock-runtime.${config.region}.amazonaws.com/model/${config.modelId}/converse`;
 
   const payload = {
     messages: [{

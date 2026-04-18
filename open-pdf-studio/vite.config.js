@@ -21,6 +21,14 @@ export default defineConfig({
       host: 'localhost',
       port: 3041,
     },
+    proxy: {
+      '/api/bedrock': {
+        target: 'https://bedrock-runtime.us-west-2.amazonaws.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/bedrock/, ''),
+        secure: true,
+      },
+    },
   },
   optimizeDeps: {
     exclude: ['mupdf'],
