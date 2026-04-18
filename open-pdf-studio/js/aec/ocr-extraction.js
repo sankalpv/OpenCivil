@@ -71,8 +71,24 @@ export async function ocrPage(pdfDoc, pageNum) {
   const result = await worker.recognize(img.dataUrl);
   const data = result.data || result;
 
-  // Tesseract.js v5 puts words at data.words; v4/v3 may use data.data.words
-  const words = data.words || data.data?.words || [];
+  // Tesseract.js v5+: words are nested inside blocks.paragraphs.lines.words
+  let words = data.words || [];
+  if (words.length === 0 && data.blocks) {
+    words = [];
+    for (const block of data.blocks) {
+      for (const para of (block.paragraphs || [])) {
+        for (const line of (para.lines || [])) {
+          for (const word of (line.words || [])) {
+            words.push(word);
+          }
+        }
+      }
+    }
+  }
+  // Fallback for older API
+  if (words.length === 0 && data.data?.words) {
+    words = data.data.words;
+  }
   console.log('[OCR] Raw result keys:', Object.keys(data), 'words count:', words.length);
 
   // Convert Tesseract words to our text span format
