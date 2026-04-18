@@ -32,24 +32,35 @@ async function getWorker() {
 
 /**
  * Render a PDF page to a canvas at high resolution.
- * Uses 5x scale (360 DPI) for maximum OCR accuracy.
+ * Auto-caps max dimension to 6000px to avoid WASM memory limits on large sheets.
  */
-async function renderPageToImage(pdfDoc, pageNum, scale = 5) {
+async function renderPageToImage(pdfDoc, pageNum, targetScale = 4) {
   const page = await pdfDoc.getPage(pageNum);
-  const viewport = page.getViewport({ scale });
+  const MAX_DIM = 6000; // Max pixels on any side (Tesseract WASM limit ~800MB)
 
+  // Calculate scale, capping to MAX_DIM
+  let scale = targetScale;
+  const baseViewport = page.getViewport({ scale: 1 });
+  const maxBaseDim = Math.max(baseViewport.width, baseViewport.height);
+  if (maxBaseDim * scale > MAX_DIM) {
+    scale = MAX_DIM / maxBaseDim;
+    console.log(`[OCR] Auto-scaled from ${targetScale}x to ${scale.toFixed(2)}x (page ${Math.round(baseViewport.width)}×${Math.round(baseViewport.height)}pt, capped to ${MAX_DIM}px)`);
+  }
+
+  const viewport = page.getViewport({ scale });
   const canvas = document.createElement('canvas');
-  canvas.width = viewport.width;
-  canvas.height = viewport.height;
+  canvas.width = Math.round(viewport.width);
+  canvas.height = Math.round(viewport.height);
   const ctx = canvas.getContext('2d');
 
-  // White background (some PDFs have transparent bg which confuses OCR)
+  // White background
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   await page.render({ canvasContext: ctx, viewport }).promise;
+  console.log(`[OCR] Rendered page ${pageNum}: ${canvas.width}×${canvas.height}px (scale ${scale.toFixed(2)}x)`);
 
-  return { canvas, width: viewport.width, height: viewport.height, scale };
+  return { canvas, width: canvas.width, height: canvas.height, scale };
 }
 
 /**
