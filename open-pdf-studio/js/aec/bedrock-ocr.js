@@ -15,7 +15,7 @@ function getConfig() {
       || 'us-west-2',
     modelId: import.meta.env.VITE_BEDROCK_MODEL_ID
       || localStorage.getItem('bedrock_model_id')
-      || 'anthropic.claude-opus-4-7',
+      || 'us.anthropic.claude-opus-4-7',
     maxTokens: parseInt(import.meta.env.VITE_BEDROCK_MAX_TOKENS
       || localStorage.getItem('bedrock_max_tokens')
       || '16384'),
