@@ -219,8 +219,9 @@ export async function ocrPage(pdfDoc, pageNum) {
   const spans = [];
   for (const word of words) {
     if (!word.text || !word.text.trim()) continue;
-    // Filter out low-confidence noise (below 30%)
-    if (word.confidence !== undefined && word.confidence < 30) continue;
+    // Filter out very low-confidence noise (below 10%)
+    // Note: engineering drawing OCR often has low confidence (20-40%) due to thin strokes
+    if (word.confidence !== undefined && word.confidence < 10) continue;
 
     const bbox = word.bbox;
     spans.push({
