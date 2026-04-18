@@ -157,14 +157,14 @@ function preprocessForOcr(sourceCanvas) {
 export async function ocrPage(pdfDoc, pageNum) {
   const worker = await getWorker();
 
-  // Render at 5x scale (360 DPI)
-  const img = await renderPageToImage(pdfDoc, pageNum, 5);
+  // Render at 4x scale (288 DPI) — balanced between accuracy and canvas size limits
+  const img = await renderPageToImage(pdfDoc, pageNum, 4);
 
   // Preprocess for engineering drawing OCR
   const processed = preprocessForOcr(img.canvas);
 
-  // Run OCR on preprocessed image
-  const result = await worker.recognize(processed.toDataURL('image/png'));
+  // Pass canvas directly to Tesseract (avoids data URL truncation for large images)
+  const result = await worker.recognize(processed);
   const data = result.data || result;
 
   // Extract words from the Tesseract result
