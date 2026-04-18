@@ -15,15 +15,23 @@ import { downloadCivil3d } from '../../aec/civil3d-export.js';
 // Record type display labels and colors
 const TYPE_LABELS = {
   station: { label: 'Station', color: '#3b82f6' },
+  manhole: { label: 'Manhole', color: '#6366f1' },
+  catchBasin: { label: 'Catch Basin', color: '#a855f7' },
+  rim: { label: 'RIM', color: '#06b6d4' },
+  invertElevation: { label: 'IE', color: '#14b8a6' },
+  invertIn: { label: 'INV In', color: '#0d9488' },
+  invertOut: { label: 'INV Out', color: '#0891b2' },
+  bottomOfStructure: { label: 'Bottom', color: '#64748b' },
+  centerOfChannel: { label: 'Channel', color: '#475569' },
   elevation: { label: 'Elevation', color: '#22c55e' },
-  invert: { label: 'Invert', color: '#14b8a6' },
-  rim: { label: 'Rim Elev', color: '#06b6d4' },
+  pipeRun: { label: 'Pipe Run', color: '#e11d48' },
   pipeSize: { label: 'Pipe Size', color: '#f59e0b' },
   pipeMaterial: { label: 'Material', color: '#8b5cf6' },
   pipeLength: { label: 'Length', color: '#ec4899' },
   slope: { label: 'Slope', color: '#ef4444' },
-  manhole: { label: 'Manhole', color: '#6366f1' },
-  catchBasin: { label: 'Catch Basin', color: '#a855f7' },
+  waterValve: { label: 'Water Valve', color: '#0ea5e9' },
+  topOfNut: { label: 'Top of Nut', color: '#7dd3fc' },
+  forceMain: { label: 'Force Main', color: '#f97316' },
   scale: { label: 'Scale', color: '#78716c' },
 };
 
