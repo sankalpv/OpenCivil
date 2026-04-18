@@ -20,6 +20,26 @@ export const BUILT_IN_STAMPS = [
   { name: 'Revised', color: '#8b5cf6', text: 'REVISED' }
 ];
 
+// AEC / Construction stamp presets (OpenCivil)
+export const AEC_STAMPS = [
+  { name: 'RFI Required', color: '#f59e0b', text: 'RFI REQUIRED' },
+  { name: 'ASI', color: '#3b82f6', text: 'ASI' },
+  { name: 'Submittal', color: '#6366f1', text: 'SUBMITTAL' },
+  { name: 'Shop Drawing', color: '#8b5cf6', text: 'SHOP DRAWING' },
+  { name: 'Field Verify', color: '#ef4444', text: 'FIELD VERIFY' },
+  { name: 'Coordinate', color: '#f97316', text: 'COORDINATE' },
+  { name: 'Revise & Resubmit', color: '#dc2626', text: 'REVISE & RESUBMIT' },
+  { name: 'No Exception', color: '#22c55e', text: 'NO EXCEPTION TAKEN' },
+  { name: 'Noted', color: '#6b7280', text: 'NOTED' },
+  { name: 'Hold Point', color: '#ef4444', text: 'HOLD POINT' },
+  { name: 'IFC', color: '#22c55e', text: 'ISSUED FOR CONSTRUCTION' },
+  { name: 'Permit', color: '#0ea5e9', text: 'ISSUED FOR PERMIT' },
+  { name: 'Bid Set', color: '#14b8a6', text: 'BID SET' },
+  { name: 'Record Drawing', color: '#a855f7', text: 'RECORD DRAWING' },
+  { name: 'Preliminary', color: '#f59e0b', text: 'PRELIMINARY' },
+  { name: 'Not for Construction', color: '#ef4444', text: 'NOT FOR CONSTRUCTION' },
+];
+
 // Show stamp picker dialog
 export function showStampPicker(x, y) {
   openDialog('stamp-picker', {
