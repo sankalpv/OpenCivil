@@ -3,6 +3,7 @@
 
 import { createSignal } from 'solid-js';
 import { extractAecData, recordsToCsv, searchSpans, summarizeRecords } from '../../aec/aec-extractor.js';
+import { groupByBoundingBox, structuresToCsv } from '../../aec/spatial-grouper.js';
 import { extractTextSpans } from '../../text/rust-text-extraction.js';
 import { state, getActiveDocument } from '../../core/state.js';
 import { isTauri } from '../../core/platform.js';
@@ -17,6 +18,9 @@ const [aecSummary, setAecSummary] = createSignal({});
 const [aecSearchQuery, setAecSearchQuery] = createSignal('');
 const [aecSearchResults, setAecSearchResults] = createSignal([]);
 const [aecFilterType, setAecFilterType] = createSignal('all');
+const [aecStructures, setAecStructures] = createSignal([]);
+const [aecUngrouped, setAecUngrouped] = createSignal([]);
+const [aecViewMode, setAecViewMode] = createSignal('structures'); // 'structures' | 'records'
 const [aecIsExtracting, setAecIsExtracting] = createSignal(false);
 const [aecStatusMessage, setAecStatusMessage] = createSignal('No data extracted yet');
 
@@ -98,9 +102,14 @@ async function runExtraction() {
     const summary = summarizeRecords(records);
     setAecSummary(summary);
 
+    // Run spatial grouping
+    const { structures, ungrouped } = groupByBoundingBox(records);
+    setAecStructures(structures);
+    setAecUngrouped(ungrouped);
+
     const method = useRust ? 'Rust' : 'PDF.js';
     setAecStatusMessage(
-      `Found ${records.length} AEC records from ${allSpans.length} text spans (${totalPages} pages, via ${method})`
+      `${records.length} records → ${structures.length} structures, ${ungrouped.length} ungrouped (${totalPages} pg, ${method})`
     );
   } catch (err) {
     console.error('AEC extraction error:', err);
@@ -155,6 +164,21 @@ function downloadCsv() {
   URL.revokeObjectURL(url);
 }
 
+/**
+ * Download structures as CSV.
+ */
+function downloadStructuresCsv() {
+  const csv = structuresToCsv(aecStructures());
+  if (!csv) return;
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'opencivil-structures.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 export {
   aecPanelVisible, setAecPanelVisible,
   aecRecords, setAecRecords,
@@ -163,6 +187,9 @@ export {
   aecSearchQuery, setAecSearchQuery,
   aecSearchResults, setAecSearchResults,
   aecFilterType, setAecFilterType,
+  aecStructures, setAecStructures,
+  aecUngrouped,
+  aecViewMode, setAecViewMode,
   aecIsExtracting,
   aecStatusMessage,
   runExtraction,
@@ -170,4 +197,5 @@ export {
   getFilteredRecords,
   getExportCsv,
   downloadCsv,
+  downloadStructuresCsv,
 };

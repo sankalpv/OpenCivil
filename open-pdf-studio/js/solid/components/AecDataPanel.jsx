@@ -6,8 +6,9 @@ import {
   aecPanelVisible, setAecPanelVisible,
   aecRecords, aecSummary, aecSearchQuery,
   aecSearchResults, aecFilterType, setAecFilterType,
+  aecStructures, aecViewMode, setAecViewMode,
   aecIsExtracting, aecStatusMessage,
-  runExtraction, updateSearch, getFilteredRecords, downloadCsv,
+  runExtraction, updateSearch, getFilteredRecords, downloadCsv, downloadStructuresCsv,
 } from '../stores/aecStore.js';
 import { downloadXlsx } from '../../aec/xlsx-export.js';
 import { downloadCivil3d } from '../../aec/civil3d-export.js';
@@ -117,6 +118,39 @@ export default function AecDataPanel() {
           {aecStatusMessage()}
         </div>
 
+        {/* View mode toggle */}
+        <Show when={aecRecords().length > 0}>
+          <div style={{ padding: '4px 12px', display: 'flex', gap: '4px',
+            'border-bottom': '1px solid var(--border-color, #eee)' }}>
+            <button onClick={() => setAecViewMode('structures')} style={{
+              flex: '1', padding: '4px 8px', 'border-radius': '4px', 'font-size': '10px',
+              border: '1px solid var(--border-color, #ddd)', cursor: 'pointer',
+              background: aecViewMode() === 'structures' ? 'var(--accent-color, #2563eb)' : 'transparent',
+              color: aecViewMode() === 'structures' ? '#fff' : 'var(--text-color, #666)',
+              'font-weight': '600',
+            }}>
+              🏗️ Structures ({aecStructures().length})
+            </button>
+            <button onClick={() => setAecViewMode('records')} style={{
+              flex: '1', padding: '4px 8px', 'border-radius': '4px', 'font-size': '10px',
+              border: '1px solid var(--border-color, #ddd)', cursor: 'pointer',
+              background: aecViewMode() === 'records' ? 'var(--accent-color, #2563eb)' : 'transparent',
+              color: aecViewMode() === 'records' ? '#fff' : 'var(--text-color, #666)',
+              'font-weight': '600',
+            }}>
+              📋 All Records ({aecRecords().length})
+            </button>
+            <button onClick={downloadStructuresCsv} disabled={aecStructures().length === 0} style={{
+              padding: '4px 8px', 'border-radius': '4px', 'font-size': '10px',
+              border: '1px solid var(--border-color, #ddd)', cursor: 'pointer',
+              background: 'transparent', color: 'var(--text-color, #666)',
+              opacity: aecStructures().length === 0 ? '0.4' : '1',
+            }} title="Export Structures CSV">
+              📥
+            </button>
+          </div>
+        </Show>
+
         {/* Search */}
         <div style={{ padding: '8px 12px' }}>
           <input type="text" placeholder="Search extracted text..."
@@ -154,8 +188,79 @@ export default function AecDataPanel() {
           </div>
         </Show>
 
-        {/* Records table */}
+        {/* Records / Structures table */}
         <div style={{ flex: '1', 'overflow-y': 'auto', padding: '0' }}>
+          {/* ── STRUCTURES VIEW ── */}
+          <Show when={aecViewMode() === 'structures' && !aecSearchQuery()?.trim() && aecStructures().length > 0}>
+            <For each={aecStructures()}>
+              {(structure) => (
+                <div style={{
+                  margin: '4px 8px', border: '1px solid var(--border-color, #ddd)',
+                  'border-radius': '6px', overflow: 'hidden',
+                }}>
+                  {/* Structure header */}
+                  <div style={{
+                    padding: '6px 10px', display: 'flex', 'align-items': 'center', gap: '8px',
+                    background: 'var(--ribbon-bg, #f0f0f0)', 'font-weight': '600', 'font-size': '12px',
+                  }}>
+                    <span style={{
+                      padding: '1px 8px', 'border-radius': '8px', 'font-size': '10px',
+                      color: '#fff', background: structure.type === 'manhole' ? '#6366f1' : structure.type === 'catchBasin' ? '#a855f7' : '#0ea5e9',
+                    }}>
+                      {structure.id}
+                    </span>
+                    <Show when={structure.rim}>
+                      <span style={{ 'font-size': '11px' }}>RIM: <b>{structure.rim}</b></span>
+                    </Show>
+                    <Show when={structure.bottom}>
+                      <span style={{ 'font-size': '10px', color: 'var(--muted-color, #888)' }}>
+                        Bot: {structure.bottom}
+                      </span>
+                    </Show>
+                    <span style={{ 'font-size': '9px', color: 'var(--muted-color, #aaa)', 'margin-left': 'auto' }}>
+                      P{structure.page}
+                    </span>
+                  </div>
+
+                  {/* Invert elevations */}
+                  <Show when={structure.inverts.length > 0}>
+                    <For each={structure.inverts}>
+                      {(inv) => (
+                        <div style={{
+                          padding: '3px 10px 3px 20px', 'font-size': '11px',
+                          'border-top': '1px solid var(--border-color, #eee)',
+                          display: 'flex', gap: '8px', 'font-family': 'monospace',
+                        }}>
+                          <span style={{ color: '#14b8a6', 'min-width': '65px' }}>IE {inv.elevation}</span>
+                          <Show when={inv.pipeSize}><span>{inv.pipeSize}</span></Show>
+                          <Show when={inv.material}><span style={{ color: '#8b5cf6' }}>{inv.material}</span></Show>
+                          <Show when={inv.direction}><span style={{ color: '#f59e0b' }}>({inv.direction})</span></Show>
+                        </div>
+                      )}
+                    </For>
+                  </Show>
+
+                  {/* Channel */}
+                  <Show when={structure.channel}>
+                    <div style={{ padding: '2px 10px 2px 20px', 'font-size': '10px',
+                      'border-top': '1px solid var(--border-color, #eee)', color: 'var(--muted-color, #888)' }}>
+                      Channel: {structure.channel}
+                    </div>
+                  </Show>
+
+                  {/* Station */}
+                  <Show when={structure.stations.length > 0}>
+                    <div style={{ padding: '2px 10px 4px 20px', 'font-size': '10px',
+                      'border-top': '1px solid var(--border-color, #eee)', color: '#3b82f6' }}>
+                      STA {structure.stations.join(', ')}
+                    </div>
+                  </Show>
+                </div>
+              )}
+            </For>
+          </Show>
+
+          {/* ── ALL RECORDS VIEW ── */}
           <Show when={aecSearchQuery()?.trim()}>
             <For each={aecSearchResults().slice(0, 200)}>
               {(span) => (
@@ -172,7 +277,7 @@ export default function AecDataPanel() {
             </For>
           </Show>
 
-          <Show when={!aecSearchQuery()?.trim() && filteredRecords().length > 0}>
+          <Show when={aecViewMode() === 'records' && !aecSearchQuery()?.trim() && filteredRecords().length > 0}>
             <table style={{ width: '100%', 'border-collapse': 'collapse', 'font-size': '11px' }}>
               <thead>
                 <tr style={{ background: 'var(--ribbon-bg, #f5f5f5)', position: 'sticky', top: '0' }}>
@@ -206,7 +311,7 @@ export default function AecDataPanel() {
             </table>
           </Show>
 
-          <Show when={!aecSearchQuery()?.trim() && filteredRecords().length === 0 && !aecIsExtracting()}>
+          <Show when={!aecSearchQuery()?.trim() && aecViewMode() === 'records' && filteredRecords().length === 0 && !aecIsExtracting()}>
             <div style={{ padding: '24px', 'text-align': 'center', color: 'var(--muted-color, #999)' }}>
               <div style={{ 'font-size': '24px', 'margin-bottom': '8px' }}>📊</div>
               <div>Click "Extract Data" to parse AEC data</div>
