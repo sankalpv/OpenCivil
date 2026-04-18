@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Open PDF Studio",
+  "productName": "OpenCivil",
   "version": "1.43.0",
-  "identifier": "org.openaec.openpdfstudio",
+  "identifier": "com.opencivil.app",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:3041",
@@ -13,7 +13,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "Open PDF Studio",
+        "title": "OpenCivil — AEC PDF Viewer",
         "width": 1200,
         "height": 800,
         "minWidth": 800,

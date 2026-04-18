@@ -31,7 +31,7 @@ fn get_opened_file(state: tauri::State<OpenedFiles>) -> Vec<String> {
 #[tauri::command]
 fn get_session_file_path() -> String {
     if let Some(data_dir) = dirs::data_local_dir() {
-        let app_dir = data_dir.join("OpenPDFStudio");
+        let app_dir = data_dir.join("OpenCivil");
         if !app_dir.exists() {
             let _ = fs::create_dir_all(&app_dir);
         }
@@ -56,7 +56,7 @@ fn load_session() -> Option<String> {
 
 fn get_preferences_file_path() -> String {
     if let Some(data_dir) = dirs::data_local_dir() {
-        let app_dir = data_dir.join("OpenPDFStudio");
+        let app_dir = data_dir.join("OpenCivil");
         if !app_dir.exists() {
             let _ = fs::create_dir_all(&app_dir);
         }
@@ -673,7 +673,7 @@ fn play_alert_sound() {
 
 fn get_plugins_dir() -> std::path::PathBuf {
     let data_dir = dirs::data_local_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
-    let plugins_dir = data_dir.join("OpenPDFStudio").join("plugins");
+    let plugins_dir = data_dir.join("OpenCivil").join("plugins");
     if !plugins_dir.exists() {
         let _ = fs::create_dir_all(&plugins_dir);
     }

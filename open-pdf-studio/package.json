@@ -1,7 +1,7 @@
 {
-  "name": "open-pdf-studio",
+  "name": "opencivil",
   "version": "1.43.0",
-  "description": "A free, open-source PDF annotation editor built with Tauri",
+  "description": "OpenCivil — Bluebeam-class PDF viewer and editor for AEC professionals, built with Tauri",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
