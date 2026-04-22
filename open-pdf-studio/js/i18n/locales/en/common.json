@@ -62,7 +62,7 @@
   "failedToReplacePage": "Failed to replace page: {{error}}",
   "failedToMergeFile": "Failed to merge: {{file}}\n{{error}}",
   "invalidPageRange": "Invalid page range. Please enter valid page numbers.",
-  "appName": "Open PDF Studio",
+  "appName": "Open Civil Studio",
   "noDocuments": "No PDF Selected",
   "noDocumentsHint": "Click \"Open PDF\" to browse and annotate a PDF",
   "solid": "Solid",

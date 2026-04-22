@@ -1,8 +1,11 @@
 // OpenCivil — XLSX Export
 // Generates formatted Excel workbooks from extracted AEC data and measurements.
+// Northing and Easting columns added via enrichRecordsWithCoordinates()
+// Real-world coordinates calculated from station, offset, and scale data
 
 import * as XLSX from 'xlsx';
 import { buildPipeSchedule } from './aec-extractor.js';
+import { enrichRecordsWithCoordinates } from './civil3d-export.js';
 import { collectMeasurements } from './measurement-export.js';
 import { getMeasureScale } from '../annotations/measurement.js';
 
@@ -18,13 +21,16 @@ import { getMeasureScale } from '../annotations/measurement.js';
 export function downloadXlsx(records, filename = 'opencivil-aec-data.xlsx') {
   const wb = XLSX.utils.book_new();
 
-  // ── Sheet 1: All AEC Records ──
-  const recordRows = records.map(r => ({
+  // ── Sheet 1: All AEC Records (with Northing/Easting) ──
+  const enriched = enrichRecordsWithCoordinates(records);
+  const recordRows = enriched.map(r => ({
     Type: r.type,
     Value: Object.values(r.fields).join(', '),
     Page: r.source.page,
     X: Math.round(r.source.x),
     Y: Math.round(r.source.y),
+    Northing: r.northing != null ? Math.round(r.northing * 1000) / 1000 : '',
+    Easting: r.easting != null ? Math.round(r.easting * 1000) / 1000 : '',
     'Source Text': r.source.text,
     'Font Size': r.source.fontSize ? Math.round(r.source.fontSize) : '',
   }));
@@ -38,6 +44,8 @@ export function downloadXlsx(records, filename = 'opencivil-aec-data.xlsx') {
       { wch: 6 },  // Page
       { wch: 8 },  // X
       { wch: 8 },  // Y
+      { wch: 14 }, // Northing
+      { wch: 14 }, // Easting
       { wch: 40 }, // Source Text
       { wch: 10 }, // Font Size
     ];

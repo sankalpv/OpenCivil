@@ -1,6 +1,6 @@
 {
   "name": "opencivil",
-  "version": "1.43.0",
+  "version": "0.1.0",
   "description": "OpenCivil — Bluebeam-class PDF viewer and editor for AEC professionals, built with Tauri",
   "scripts": {
     "dev": "vite",

@@ -3,6 +3,10 @@
 // Clusters text spans that are spatially close on the PDF page into
 // "callout blocks", then attaches all data within each block to the
 // nearest structure anchor (SDMH, CB, SSMH, etc.).
+//
+// Northing and Easting columns added via enrichRecordsWithCoordinates()
+
+import { enrichRecordsWithCoordinates } from './civil3d-export.js';
 
 /**
  * @typedef {Object} StructureBlock
@@ -163,13 +167,36 @@ export function groupByBoundingBox(records, options = {}) {
 export function structuresToTable(structures) {
   const rows = [];
 
+  // Collect all records across all structures to enrich with coordinates
+  const allRecords = structures.flatMap(s => s.records || []);
+  const enriched = enrichRecordsWithCoordinates(allRecords);
+
+  // Build a map of record → enriched record for coordinate lookup
+  const coordMap = new Map();
+  for (let i = 0; i < allRecords.length; i++) {
+    const e = enriched[i];
+    if (e.northing != null || e.easting != null) {
+      const id = e.fields?.id || null;
+      if (id && !coordMap.has(id)) {
+        coordMap.set(id, { northing: e.northing, easting: e.easting });
+      }
+    }
+  }
+
   for (const s of structures) {
+    // Look up coordinates for this structure
+    const coord = coordMap.get(s.id) || { northing: null, easting: null };
+    const northing = coord.northing != null ? coord.northing.toFixed(3) : '';
+    const easting = coord.easting != null ? coord.easting.toFixed(3) : '';
+
     if (s.inverts.length === 0) {
       // Structure with only RIM/bottom
       rows.push({
         'Structure': s.id,
         'Type': s.type,
         'Page': s.page,
+        'Northing': northing,
+        'Easting': easting,
         'RIM': s.rim || '',
         'IE Elev': '',
         'IE Pipe': '',
@@ -184,9 +211,11 @@ export function structuresToTable(structures) {
       for (let i = 0; i < s.inverts.length; i++) {
         const inv = s.inverts[i];
         rows.push({
-          'Structure': i === 0 ? s.id : '', // Only show structure ID on first row
+          'Structure': i === 0 ? s.id : '',
           'Type': i === 0 ? s.type : '',
           'Page': i === 0 ? s.page : '',
+          'Northing': i === 0 ? northing : '',
+          'Easting': i === 0 ? easting : '',
           'RIM': i === 0 ? (s.rim || '') : '',
           'IE Elev': inv.elevation || '',
           'IE Pipe': inv.pipeSize || '',

@@ -4,6 +4,11 @@
 //
 // Targets: SDMH, SSMH, MH, CB, RIM, IE, INV, pipe runs, slopes, stations,
 //          water valves, bottom of structure, pipe sizes/materials.
+//
+// Northing and Easting columns added via enrichRecordsWithCoordinates()
+// Real-world survey coordinates calculated from station, offset, and scale
+
+import { enrichRecordsWithCoordinates } from './civil3d-export.js';
 
 /**
  * @typedef {Object} AecRecord
@@ -23,18 +28,24 @@ const PATTERNS = {
 
   // ── Structures ──
   // SDMH4, SDMH4A, SDMH-5, SSMH, STMH-1, MH-1, MH 2, MH#3
-  manhole: /((?:SD|SS|ST|STSD)?MH)\s*[-#]?\s*(\d+[A-Z]?)/gi,
+  // Profile: SDMH5 60" TYPE 1, SDMH4A 48" TYPE 1
+  manhole: /((?:SD|SS|ST|STSD)?MH)\s*[-#]?\s*(\d+[A-Z]?)(?:\s+(\d{1,2})[""]\s*(?:TYPE\s*(\d+))?)?/gi,
 
   // CB, CB-1, CB #2, SDCB, SDCB-1, SSCB, standalone CB
-  catchBasin: /((?:SD|SS)?CB)\s*[-#]?\s*(\d*[A-Z]?)/gi,
+  // Word boundary after CB prevents capturing "R" from "CB RIM=..."
+  catchBasin: /((?:SD|SS)?CB)\s*[-#]?\s*(\d+[A-Z]?)\b|(?:^|\s)((?:SD|SS)?CB)(?=\s+RIM|\s*$|\s+[^-#\dA-Z])/gim,
 
   // ── RIM Elevations ──
-  // RIM=143.96, RIM-144.92, RIM =155.05, RIM: 142.50
-  rim: /RIM\s*[=:\-]\s*(\d{2,4}\.\d{1,3})/gi,
+  // Plan: RIM=143.96, RIM-144.92, RIM =155.05, RIM: 142.50
+  // Profile: RIM 156.70±-MATCH EX (space separator, ± approximate, MATCH EX qualifier)
+  rim: /RIM\s*[=:\-\s]\s*(\d{2,4}\.\d{1,3})(±)?(?:\s*[-–]?\s*(MATCH\s+EX))?/gi,
 
   // ── IE (Invert Elevation) ──
   // IE 8" PVC (S)=142.99, IE 12" CONC (E)=140.62
   ie: /IE\s+(?:(\d{1,2})[""]\s*)?([\w]+)?\s*\(([NSEW]+)\)\s*[=:]\s*(\d{2,4}\.\d{1,3})/gi,
+
+  // Profile IE: IE 148.00 30" N, IE 137.80 30" SE (elevation first, no = sign)
+  ieProfile: /IE\s+(\d{2,4}\.\d{1,3})\s+(\d{1,2})[""]\s*([NSEW]{1,2})/gi,
 
   // Simple IE without pipe info: IE=98.50, IE: 97.25
   ieSimple: /IE\s*[=:]\s*(\d{2,4}\.\d{1,3})/gi,
@@ -54,8 +65,8 @@ const PATTERNS = {
   elevation: /(?:EL(?:EV)?\.?\s*|INV\.?\s*|RIM\.?\s*)(\d{2,4}\.\d{1,3})/gi,
 
   // ── Pipe size ──
-  // 8", 12", 30", 8-inch, 12 IN
-  pipeSize: /(\d{1,2})["""\u201d](?:\s*(?:DIA|Ø|0))?|(\d{1,2})[\s-]*(?:IN(?:CH)?|in)/gi,
+  // 8", 12", 30", 8-inch, 12 IN, 30"∅
+  pipeSize: /(\d{1,2})["""\u201d](?:\s*(?:DIA|Ø|∅|0))?|(\d{1,2})[\s-]*(?:IN(?:CH)?|in)/gi,
 
   // ── Pipe material ──
   pipeMaterial: /(PVC|RCP|HDPE|CMP|DIP|VCP|STL|SDR\s*\d+|CONC(?:RETE)?)/gi,
@@ -67,7 +78,8 @@ const PATTERNS = {
   pipeLength: /(?:L(?:ENGTH)?\s*=\s*)?(\d+(?:\.\d+)?)\s*(?:LF)/gi,
 
   // ── Compound pipe run ──
-  pipeRun: /(\d+(?:\.\d+)?)\s*LF\s+(\d{1,2})[""]\s*[0Ø]?\s*(PVC|RCP|HDPE|STL|CONC)\s*,?\s*S\s*=\s*(\d+\.?\d*%?)/gi,
+  // 249 LF 30"∅ PVC, S=0.5%  (∅ U+2205 and Ø U+00D8)
+  pipeRun: /(\d+(?:\.\d+)?)\s*LF\s+(\d{1,2})[""]\s*[0Ø∅]?\s*(PVC|RCP|HDPE|STL|CONC)\s*,?\s*S\s*=\s*(\d+\.?\d*%?)/gi,
 
   // ── Water Valve ──
   waterValve: /WATER\s+VALVE?/gi,
@@ -80,6 +92,32 @@ const PATTERNS = {
 
   // ── Force Main ──
   forceMain: /FORCE\s+MAIN/gi,
+
+  // ── Profile: Station with offset ──
+  // STA 5+36.7  0.00  RT, STA 6+67.9  0.00  RT
+  stationOffset: /STA\.?\s*(\d{1,3}\+\d{2}(?:\.\d{1,2})?)\s+(\d+\.\d+)\s*(RT|LT|[RL])/gi,
+
+  // ── Existing Utility labels (profile) ──
+  // EX. WATER, EX. 8" DI WATER, EX. 18" SS FM, EX. WATER SERVICE
+  // Stops at boundary words: IE, RIM, TOP, BOTTOM, SIZE to avoid over-capture
+  existingUtility: /EX\.?\s+((?:\d{1,2}[""]\s*)?(?:DI\s+)?(?:WATER(?:\s+SERVICE)?|POWER|GAS|SEWER|SIDE\s+SEWER|SS(?:\s+FM)?|SD|FM|FORCE\s+MAIN))/gi,
+
+  // ── Full-name structures (WSDOT / state DOT drawings) ──
+  // CATCH BASIN TYPE 2 54" DIAM, CATCH BASIN TYPE 2 48" DIAM
+  catchBasinFull: /CATCH\s+BASIN\s+TYPE\s+(\d+)\s+(\d{1,3})[""]\s*DIAM/gi,
+
+  // MANHOLE TYPE 3 48" DIAM, MANHOLE TYPE 2 54" DIAM
+  manholeFull: /MANHOLE\s+TYPE\s+(\d+)\s+(\d{1,3})[""]\s*DIAM/gi,
+
+  // RIM EL. 110.63, RIM EL. 87.00 (WSDOT format — "EL." not "=")
+  rimElevation: /RIM\s+EL\.?\s*(\d{2,4}\.\d{1,3})/gi,
+
+  // Station with offset in JR/MR format: JR 60+87.09 (17.87' RT)
+  // Also handles MR 4415+37.49 (117.79' RT)
+  stationJR: /(?:JR|MR|LR)\s+(\d{1,5}\+\d{2}(?:\.\d{1,2})?)\s*\((\d+\.?\d*)['']\s*(RT|LT)\)/gi,
+
+  // FL (flow line) elevation: FL 110.48 FT
+  flowLine: /FL\s+(\d{2,4}\.\d{1,3})\s*FT/gi,
 };
 
 // ============================================================
@@ -95,6 +133,8 @@ const PATTERNS = {
  */
 export function extractAecData(spans, defaultPage = 1) {
   const records = [];
+  let cbFullCounter = 0;  // Running counter for full-name catch basins (WSDOT)
+  let mhFullCounter = 0;  // Running counter for full-name manholes (WSDOT)
 
   for (const span of spans) {
     const text = span.text;
@@ -112,25 +152,36 @@ export function extractAecData(spans, defaultPage = 1) {
     }
 
     // ── Manhole (SDMH, SSMH, STMH, MH) ──
+    // Profile includes diameter + type: SDMH5 60" TYPE 1
     const mhRe = new RegExp(PATTERNS.manhole.source, PATTERNS.manhole.flags);
     while ((match = mhRe.exec(text)) !== null) {
       const prefix = match[1].toUpperCase(); // SDMH, SSMH, STMH, MH
       const num = match[2];
-      records.push({ type: 'manhole', fields: { id: prefix + num, prefix, number: num }, source });
+      const fields = { id: prefix + num, prefix, number: num };
+      if (match[3]) fields.diameter = match[3] + '"';
+      if (match[4]) fields.manholeType = 'TYPE ' + match[4];
+      records.push({ type: 'manhole', fields, source });
     }
 
     // ── Catch Basin (CB, SDCB, SSCB) ──
+    // Alternation: group 1+2 = numbered CB (CB-1), group 3 = standalone CB (before RIM or end)
     const cbRe = new RegExp(PATTERNS.catchBasin.source, PATTERNS.catchBasin.flags);
     while ((match = cbRe.exec(text)) !== null) {
-      const prefix = match[1].toUpperCase(); // CB, SDCB, SSCB
+      const prefix = (match[1] || match[3] || '').toUpperCase();
       const num = match[2] || '';
-      records.push({ type: 'catchBasin', fields: { id: prefix + (num ? num : ''), prefix, number: num }, source });
+      if (prefix) {
+        records.push({ type: 'catchBasin', fields: { id: prefix + num, prefix, number: num }, source });
+      }
     }
 
     // ── RIM elevation (dedicated, high priority) ──
+    // Now handles: RIM=143.96, RIM 156.70±-MATCH EX
     const rimRe = new RegExp(PATTERNS.rim.source, PATTERNS.rim.flags);
     while ((match = rimRe.exec(text)) !== null) {
-      records.push({ type: 'rim', fields: { value: match[1], raw: match[0] }, source });
+      const fields = { value: match[1], raw: match[0] };
+      if (match[2]) fields.approximate = true;
+      if (match[3]) fields.matchExisting = true;
+      records.push({ type: 'rim', fields, source });
     }
 
     // ── IE with pipe info: IE 8" PVC (S)=142.99 ──
@@ -147,6 +198,28 @@ export function extractAecData(spans, defaultPage = 1) {
         },
         source,
       });
+    }
+
+    // ── Profile IE: IE 148.00 30" N (elevation first, no = sign) ──
+    const ieProfileRe = new RegExp(PATTERNS.ieProfile.source, PATTERNS.ieProfile.flags);
+    while ((match = ieProfileRe.exec(text)) !== null) {
+      // Avoid duplicate if already caught by detailed IE regex
+      const alreadyCaught = records.some(
+        r => r.type === 'invertElevation' && r.source === source && r.fields.elevation === match[1]
+      );
+      if (!alreadyCaught) {
+        records.push({
+          type: 'invertElevation',
+          fields: {
+            elevation: match[1],
+            pipeSize: match[2] + '"',
+            direction: match[3],
+            raw: match[0],
+            format: 'profile',
+          },
+          source,
+        });
+      }
     }
 
     // ── IE simple: IE=98.50 ──
@@ -254,6 +327,99 @@ export function extractAecData(spans, defaultPage = 1) {
     while ((match = scaleRe.exec(text)) !== null) {
       records.push({ type: 'scale', fields: { ratio: '1"=' + match[1] + "'" }, source });
     }
+
+    // ── Station with offset (profile): STA 5+36.7  0.00  RT ──
+    const staOffRe = new RegExp(PATTERNS.stationOffset.source, PATTERNS.stationOffset.flags);
+    while ((match = staOffRe.exec(text)) !== null) {
+      records.push({
+        type: 'stationOffset',
+        fields: { station: match[1], offset: match[2], side: match[3], raw: match[0] },
+        source,
+      });
+    }
+
+    // ── Existing Utility labels (profile) ──
+    const exUtilRe = new RegExp(PATTERNS.existingUtility.source, PATTERNS.existingUtility.flags);
+    while ((match = exUtilRe.exec(text)) !== null) {
+      records.push({
+        type: 'existingUtility',
+        fields: { description: match[1].trim(), raw: match[0] },
+        source,
+      });
+    }
+
+    // ── Full-name Catch Basin (WSDOT): CATCH BASIN TYPE 2 54" DIAM ──
+    const cbFullRe = new RegExp(PATTERNS.catchBasinFull.source, PATTERNS.catchBasinFull.flags);
+    while ((match = cbFullRe.exec(text)) !== null) {
+      cbFullCounter++;
+      records.push({
+        type: 'catchBasin',
+        fields: {
+          id: 'CB-T' + match[1] + '-' + cbFullCounter,  // e.g. CB-T2-1, CB-T2-2 (unique per occurrence)
+          prefix: 'CB',
+          number: '',
+          diameter: match[2] + '"',
+          structType: 'TYPE ' + match[1],
+          raw: match[0],
+        },
+        source,
+      });
+    }
+
+    // ── Full-name Manhole (WSDOT): MANHOLE TYPE 3 48" DIAM ──
+    const mhFullRe = new RegExp(PATTERNS.manholeFull.source, PATTERNS.manholeFull.flags);
+    while ((match = mhFullRe.exec(text)) !== null) {
+      mhFullCounter++;
+      records.push({
+        type: 'manhole',
+        fields: {
+          id: 'MH-T' + match[1] + '-' + mhFullCounter,  // e.g. MH-T3-1, MH-T3-2 (unique per occurrence)
+          prefix: 'MH',
+          number: '',
+          diameter: match[2] + '"',
+          manholeType: 'TYPE ' + match[1],
+          raw: match[0],
+        },
+        source,
+      });
+    }
+
+    // ── RIM EL. (WSDOT format): RIM EL. 110.63 ──
+    const rimElRe = new RegExp(PATTERNS.rimElevation.source, PATTERNS.rimElevation.flags);
+    while ((match = rimElRe.exec(text)) !== null) {
+      // Avoid duplicate if already caught by main rim regex
+      const alreadyCaught = records.some(
+        r => r.type === 'rim' && r.source === source && r.fields.value === match[1]
+      );
+      if (!alreadyCaught) {
+        records.push({ type: 'rim', fields: { value: match[1], raw: match[0] }, source });
+      }
+    }
+
+    // ── Station with JR/MR offset: JR 60+87.09 (17.87' RT) ──
+    const staJrRe = new RegExp(PATTERNS.stationJR.source, PATTERNS.stationJR.flags);
+    while ((match = staJrRe.exec(text)) !== null) {
+      records.push({
+        type: 'stationOffset',
+        fields: {
+          station: match[1],
+          offset: match[2],
+          side: match[3],
+          raw: match[0],
+        },
+        source,
+      });
+    }
+
+    // ── Flow Line elevation: FL 110.48 FT ──
+    const flRe = new RegExp(PATTERNS.flowLine.source, PATTERNS.flowLine.flags);
+    while ((match = flRe.exec(text)) !== null) {
+      records.push({
+        type: 'flowLine',
+        fields: { elevation: match[1], raw: match[0] },
+        source,
+      });
+    }
   }
 
   return records;
@@ -316,11 +482,16 @@ export function buildPipeSchedule(records) {
 export function recordsToCsv(records) {
   if (records.length === 0) return '';
 
-  const rows = records.map(r => ({
+  // Enrich records with real-world Northing/Easting coordinates
+  const enriched = enrichRecordsWithCoordinates(records);
+
+  const rows = enriched.map(r => ({
     type: r.type,
     page: r.source.page,
     x: Math.round(r.source.x),
     y: Math.round(r.source.y),
+    Northing: r.northing != null ? r.northing.toFixed(3) : '',
+    Easting: r.easting != null ? r.easting.toFixed(3) : '',
     text: r.source.text,
     ...r.fields,
   }));

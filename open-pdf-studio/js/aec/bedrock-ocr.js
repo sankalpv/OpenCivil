@@ -123,46 +123,35 @@ async function renderPageForBedrock(pdfDoc, pageNum) {
   return { base64, width: canvas.width, height: canvas.height, scale };
 }
 
+// Fallback model when primary fails
+const FALLBACK_MODEL = 'us.anthropic.claude-opus-4-6-v1';
+
 /**
- * Call Bedrock Converse API with an image and prompt.
+ * Make a single Bedrock Converse API call with a specific model.
  */
-async function callBedrock(imageBase64, prompt) {
-  const config = getConfig();
-
-  if (!config.apiKey) {
-    throw new Error('Bedrock API key not configured. Set VITE_BEDROCK_API_KEY in .env or use setBedrockApiKey()');
-  }
-
-  // Use Vite proxy in dev mode to avoid CORS, direct URL in production/Tauri
+async function callBedrockOnce(imageBase64, prompt, modelId, region, apiKey, maxTokens) {
   const isDev = import.meta.env.DEV;
   const url = isDev
-    ? `/api/bedrock/model/${config.modelId}/converse`
-    : `https://bedrock-runtime.${config.region}.amazonaws.com/model/${config.modelId}/converse`;
+    ? `/api/bedrock/model/${modelId}/converse`
+    : `https://bedrock-runtime.${region}.amazonaws.com/model/${modelId}/converse`;
 
   const payload = {
     messages: [{
       role: 'user',
       content: [
-        {
-          image: {
-            format: 'png',
-            source: { bytes: imageBase64 },
-          },
-        },
+        { image: { format: 'png', source: { bytes: imageBase64 } } },
         { text: prompt },
       ],
     }],
-    inferenceConfig: {
-      maxTokens: config.maxTokens,
-    },
+    inferenceConfig: { maxTokens },
   };
 
-  console.log(`[AI] Calling Bedrock: ${config.modelId} in ${config.region}`);
+  console.log(`[AI] Calling Bedrock: ${modelId} in ${region}`);
 
   const resp = await fetch(url, {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${config.apiKey}`,
+      'Authorization': `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(payload),
@@ -170,20 +159,55 @@ async function callBedrock(imageBase64, prompt) {
 
   if (!resp.ok) {
     const errText = await resp.text();
-    console.error('[AI] Bedrock error:', resp.status, errText);
+    console.error(`[AI] Bedrock error (${modelId}):`, resp.status, errText);
     throw new Error(`Bedrock API error ${resp.status}: ${errText.substring(0, 200)}`);
   }
 
   const result = await resp.json();
-
-  // Extract text from Converse API response
   const output = result.output?.message?.content;
   if (output && output.length > 0) {
     const textBlock = output.find(b => b.text);
     if (textBlock) return textBlock.text;
   }
-
   throw new Error('No text in Bedrock response');
+}
+
+/**
+ * Call Bedrock with retry + model fallback.
+ * 1. Try configured model (e.g. Opus 4.7)
+ * 2. If fails → retry same model after 3s delay
+ * 3. If fails again → fallback to Opus 4.6
+ */
+async function callBedrock(imageBase64, prompt) {
+  const config = getConfig();
+  if (!config.apiKey) {
+    throw new Error('Bedrock API key not configured. Set VITE_BEDROCK_API_KEY in .env or use setBedrockApiKey()');
+  }
+
+  // Attempt 1: primary model
+  try {
+    return await callBedrockOnce(imageBase64, prompt, config.modelId, config.region, config.apiKey, config.maxTokens);
+  } catch (err1) {
+    console.warn(`[AI] Attempt 1 failed (${config.modelId}):`, err1.message);
+  }
+
+  // Attempt 2: retry primary model after 3s delay
+  console.log('[AI] Retrying primary model in 3 seconds...');
+  await new Promise(r => setTimeout(r, 3000));
+  try {
+    return await callBedrockOnce(imageBase64, prompt, config.modelId, config.region, config.apiKey, config.maxTokens);
+  } catch (err2) {
+    console.warn(`[AI] Attempt 2 failed (${config.modelId}):`, err2.message);
+  }
+
+  // Attempt 3: fallback to Opus 4.6
+  console.log(`[AI] Falling back to ${FALLBACK_MODEL}...`);
+  try {
+    return await callBedrockOnce(imageBase64, prompt, FALLBACK_MODEL, config.region, config.apiKey, config.maxTokens);
+  } catch (err3) {
+    console.error(`[AI] All 3 attempts failed. Last error:`, err3.message);
+    throw new Error(`Bedrock failed after 3 attempts (${config.modelId} x2, ${FALLBACK_MODEL} x1): ${err3.message}`);
+  }
 }
 
 /**
@@ -213,7 +237,8 @@ function parseAiResponse(jsonText, pageNum, imgScale) {
   let yPos = 0;
 
   // Convert all_text array into spans
-  if (data.all_text) {
+  const hasAllText = data.all_text && data.all_text.length > 0;
+  if (hasAllText) {
     for (const text of data.all_text) {
       spans.push({
         text, x: 0, y: yPos, width: text.length * 8, height: 12,
@@ -223,8 +248,10 @@ function parseAiResponse(jsonText, pageNum, imgScale) {
     }
   }
 
-  // Convert structures into text spans (so regex pipeline can match them)
-  if (data.structures) {
+  // Convert structures into text spans ONLY if all_text is missing/empty.
+  // When all_text is present, the regex pipeline will extract the same data
+  // from all_text — emitting structures too would cause duplicates.
+  if (data.structures && !hasAllText) {
     for (const s of data.structures) {
       if (s.id) spans.push({ text: s.id, x: 0, y: yPos, width: 80, height: 12, font_size: 12, page: pageNum, source: 'ai' });
       yPos += 14;
@@ -254,8 +281,8 @@ function parseAiResponse(jsonText, pageNum, imgScale) {
     }
   }
 
-  // Convert pipes
-  if (data.pipes) {
+  // Convert pipes (only if all_text is missing — same dedup logic)
+  if (data.pipes && !hasAllText) {
     for (const p of data.pipes) {
       const parts = [];
       if (p.length) parts.push(p.length);
@@ -269,8 +296,8 @@ function parseAiResponse(jsonText, pageNum, imgScale) {
     }
   }
 
-  // Convert notes
-  if (data.notes) {
+  // Convert notes (only if all_text is missing — same dedup logic)
+  if (data.notes && !hasAllText) {
     for (const section of data.notes) {
       spans.push({ text: section.section, x: 0, y: yPos, width: 120, height: 14, font_size: 14, page: pageNum, source: 'ai' });
       yPos += 16;

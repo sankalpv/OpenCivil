@@ -27,6 +27,8 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api\/bedrock/, ''),
         secure: true,
+        timeout: 600000,      // 10 minutes — Bedrock can take long on dense drawings
+        proxyTimeout: 600000, // 10 minutes — keep proxy alive during processing
       },
     },
   },

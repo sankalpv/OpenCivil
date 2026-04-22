@@ -9,6 +9,9 @@ out/
 src-tauri/target/
 open-pdf-studio/src-tauri/target/
 
+# Rust build output
+open-pdf-render/target/
+
 # OS files
 .DS_Store
 Thumbs.db

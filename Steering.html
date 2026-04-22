@@ -1,0 +1,904 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>OpenCivil — Steering Document</title>
+<style>
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:1100px;margin:0 auto;padding:40px;line-height:1.6;color:#1a1a2e;background:#fafafa}
+#content{display:none}
+</style>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.5.1/github-markdown-light.min.css">
+<style>
+.markdown-body{box-sizing:border-box;min-width:200px;max-width:1100px;margin:0 auto;padding:45px}
+.markdown-body table{display:table;width:100%}
+.markdown-body h1{border-bottom:3px solid #0f3460;color:#16213e}
+.markdown-body h2{border-bottom:2px solid #e2e8f0;color:#0f3460;margin-top:40px}
+.markdown-body h3{color:#16213e}
+.markdown-body th{background:#0f3460;color:white}
+.markdown-body blockquote{border-left-color:#0f3460;background:#ebf4ff}
+@media print{.markdown-body{padding:10px;font-size:12px}.markdown-body table{font-size:11px}}
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.1/marked.min.js"></script>
+</head>
+<body>
+<article class="markdown-body" id="output"></article>
+<script id="content" type="text/markdown">
+# OpenCivil — Product & Engineering Steering Document
+
+> **Purpose:** This document provides a comprehensive overview of the OpenCivil codebase for AI product managers (ChatGPT, Grok, Gemini, Claude). It covers every file, every feature, every technology boundary, and every architectural decision in the system.
+
+---
+
+## 1. Product Overview
+
+**OpenCivil** is an open-source, cross-platform PDF viewer, editor, and annotator built specifically for **AEC (Architecture, Engineering, Construction) professionals**. It is a fork of **Open PDF Studio** (v1.43.0), enhanced with construction-industry-specific tools.
+
+### Market Position
+
+| | OpenCivil | Bluebeam Revu | Adobe Acrobat Pro | Foxit PDF Editor |
+|---|:---:|:---:|:---:|:---:|
+| **Price** | Free (open-source) | $240/year | $240/year | $130/year |
+| **License** | LGPL-3.0 / MIT | Proprietary | Proprietary | Proprietary |
+| **AEC data extraction** | ✅ Built-in | ❌ | ❌ | ❌ |
+| **Civil3D export** | ✅ LandXML | ❌ | ❌ | ❌ |
+| **Construction stamps** | 16 AEC stamps | Custom stamps | Generic stamps | Generic stamps |
+| **Measurement export** | CSV/XLSX | Limited | ❌ | ❌ |
+| **OCR for drawings** | Tesseract + Bedrock AI | ❌ | ✅ | ✅ |
+| **Platforms** | Win, Mac, Linux, Android | Windows only | Win, Mac | Win, Mac, Linux |
+| **Offline** | 100% offline-capable | Yes | Cloud-dependent | Yes |
+| **Telemetry** | None | Yes | Yes | Minimal |
+
+### Target Users
+- Civil engineers reviewing utility plans and grading drawings
+- Construction managers marking up RFIs, submittals, and shop drawings
+- Inspectors annotating field reports with measurement data
+- AEC firms needing Bluebeam-compatible XFDF markup exchange
+
+---
+
+## 2. Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        TAURI 2 DESKTOP SHELL                            │
+│  src-tauri/src/lib.rs  —  44 Rust commands via IPC                      │
+│  ┌─────────────────────────────────────────────────────────────────────┐│
+│  │  Rust Backend                                                       ││
+│  │  • File I/O (read, write, lock, unlock, rename, delete)            ││
+│  │  • Session & preferences persistence (JSON files)                  ││
+│  │  • PDF rendering via open-pdf-render crate (pure Rust → RGBA)      ││
+│  │  • Printer management (Windows ShellExecuteW + CIM)                ││
+│  │  • Plugin install/uninstall (ZIP extraction)                       ││
+│  │  • Virtual printer (PowerShell + UAC elevation)                    ││
+│  │  • URL download (reqwest), temp file management                    ││
+│  │  • PDF bytes cache + parsed document handle cache                  ││
+│  └───────────────────────────┬─────────────────────────────────────────┘│
+│                              │ IPC: invoke() / Tauri FS plugin          │
+│  ┌───────────────────────────▼─────────────────────────────────────────┐│
+│  │  WEBVIEW (Vite + SolidJS + Vanilla JS)                              ││
+│  │                                                                     ││
+│  │  ┌──────────────┐  ┌─────────────┐  ┌──────────────────────────┐   ││
+│  │  │  SolidJS UI   │  │  bridge.ts  │  │  Vanilla JS Engine       │   ││
+│  │  │  (reactive)   │←─│  (facade)   │←─│  (PDF/canvas/tools)      │   ││
+│  │  │  Ribbon, Tabs │  │  re-exports │  │  annotations, events     │   ││
+│  │  │  Dialogs,     │  │  store APIs │  │  tool-dispatcher          │   ││
+│  │  │  Panels       │  │             │  │  snap-engine              │   ││
+│  │  └──────┬────────┘  └─────────────┘  └──────────┬───────────────┘   ││
+│  │         │                                        │                   ││
+│  │  ┌──────▼────────────────────────────────────────▼───────────────┐  ││
+│  │  │              core/state.ts (createMutable)                     │  ││
+│  │  │  Central app state — per-document DocumentState objects        │  ││
+│  │  │  Interaction state, clipboard, editing, selections             │  ││
+│  │  └──────────────────────────┬────────────────────────────────────┘  ││
+│  │                             │                                       ││
+│  │  ┌──────────────────────────▼────────────────────────────────────┐  ││
+│  │  │               PDF PROCESSING LAYER                             │  ││
+│  │  │  ┌──────────────────┐  ┌───────────────────┐  ┌────────────┐ │  ││
+│  │  │  │  PDF.js v5.4      │  │  pdf-lib v1.17     │  │  MuPDF     │ │  ││
+│  │  │  │  READ-ONLY:       │  │  WRITE:            │  │  WASM      │ │  ││
+│  │  │  │  • Rendering      │  │  • Save with annot │  │  fallback  │ │  ││
+│  │  │  │  • Text layer     │  │  • Create blank    │  │  renderer  │ │  ││
+│  │  │  │  • Form fields    │  │  • Page rotation   │  │            │ │  ││
+│  │  │  │  • Annotations    │  │  • Merge/extract   │  │            │ │  ││
+│  │  │  └──────────────────┘  └───────────────────┘  └────────────┘ │  ││
+│  │  └──────────────────────────────────────────────────────────────┘  ││
+│  │                                                                     ││
+│  │  ┌──────────────────────────────────────────────────────────────┐  ││
+│  │  │  AEC MODULE (OpenCivil-specific)                              │  ││
+│  │  │  • Regex-based data extraction (stations, elevations, pipes)  │  ││
+│  │  │  • OCR via Tesseract.js + AWS Bedrock                        │  ││
+│  │  │  • Spatial grouping of extracted data                         │  ││
+│  │  │  • Civil3D LandXML export                                    │  ││
+│  │  │  • XLSX spreadsheet export                                   │  ││
+│  │  └──────────────────────────────────────────────────────────────┘  ││
+│  │                                                                     ││
+│  │  ┌──────────────────────────────────────────────────────────────┐  ││
+│  │  │  i18next (37 languages, 8 namespaces, RTL support)           │  ││
+│  │  └──────────────────────────────────────────────────────────────┘  ││
+│  └─────────────────────────────────────────────────────────────────────┘│
+└─────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│  OPEN-PDF-RENDER  (standalone Rust crate, linked as local dependency)   │
+│  Pure Rust PDF → RGBA bitmap renderer                                   │
+│  lopdf (parsing) + tiny-skia (raster) + ttf-parser (fonts) + rayon     │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### Key Architecture Decisions
+
+1. **Hybrid UI**: SolidJS renders the chrome (ribbon, dialogs, panels). Vanilla JS handles all PDF canvas operations. `bridge.ts` is the decoupling layer.
+2. **Three PDF Engines**: PDF.js for viewing, pdf-lib for writing, open-pdf-render for native Rust rendering. They never share parsed state — `originalBytesCache` bridges them.
+3. **Tauri 2**: Provides native OS access without Electron's overhead. The app is ~15MB vs Electron's ~150MB.
+4. **Document Handle Caching**: The Rust backend caches parsed PDF handles with their font registries, so glyph extraction (the dominant cost) only runs once per font per document.
+
+---
+
+## 3. Technology Stack
+
+| Technology | Version | Role |
+|------------|---------|------|
+| **Tauri** | 2.10.2 | Desktop shell, IPC, window management, OS integration |
+| **SolidJS** | 1.9.11 | Reactive UI framework (ribbon, dialogs, panels) |
+| **Vite** | 7.3.1 | Build tool and dev server (port 3041) |
+| **PDF.js** (pdfjs-dist) | 5.4.624 | PDF rendering engine (read-only) |
+| **pdf-lib** | 1.17.1 | PDF creation and modification (write) |
+| **MuPDF** (mupdf WASM) | 1.27.0 | Fallback PDF renderer for complex pages |
+| **i18next** | 25.8.13 | Internationalization (37 languages) |
+| **Tesseract.js** | 7.0.0 | Client-side OCR for scanned PDF drawings |
+| **SheetJS** (xlsx) | 0.18.5 | XLSX spreadsheet export |
+| **TypeScript** | 5.9.3 | Partial type checking (types, state, bridge) |
+| **Playwright** | 1.59.1 | End-to-end testing |
+| **lopdf** | 0.34 | Rust PDF parsing library |
+| **tiny-skia** | 0.11 | Rust 2D rasterization (Skia subset) |
+| **ttf-parser** | 0.25 | Rust TrueType/OpenType font parser |
+| **rayon** | 1.x | Rust data parallelism (batch page rendering) |
+| **image** | 0.25 | Rust image encoding (JPEG thumbnails) |
+| **reqwest** | 0.12 | Rust HTTP client (PDF URL download, updates) |
+
+### Tauri Plugins (8)
+
+| Plugin | Purpose |
+|--------|---------|
+| `tauri-plugin-fs` | File system access with security scopes |
+| `tauri-plugin-dialog` | Native open/save file dialogs |
+| `tauri-plugin-shell` | Open URLs in default browser |
+| `tauri-plugin-os` | OS detection (type, version, arch) |
+| `tauri-plugin-process` | App exit/restart |
+| `tauri-plugin-updater` | Auto-update from GitHub releases (desktop only) |
+| `tauri-plugin-deep-link` | `openpdfstudio://` URL scheme handler |
+| `tauri-plugin-single-instance` | Prevent multiple app instances, forward files |
+
+---
+
+## 4. Complete File Inventory
+
+### 4.1 Root (`/`)
+
+| File | Purpose |
+|------|---------|
+| `README.md` | Project README with feature list, comparison table, installation instructions |
+| `CLAUDE.md` | Development guidelines — cursor rules, modal style, commit conventions |
+| `LICENSE.md` | LGPL-3.0 license text |
+| `MEYDENBAUER_PDF_ANALYSIS.md` | Analysis of a specific architectural drawing PDF for testing |
+| `PDF_ACCURACY_TEST.md` | PDF rendering accuracy test results and methodology |
+| `PDF_TESTING_SUMMARY.txt` | Summary of PDF compatibility testing |
+| `test_pdf_capabilities.sh` | Shell script for automated PDF rendering tests |
+| `test-pdf.pdf` | Sample PDF for testing |
+| `2459-TO_Fragmenten.pdf` | Dutch architectural drawing PDF used for font/encoding tests |
+
+### 4.2 `open-pdf-studio/` — Main Application
+
+#### 4.2.1 Root Config Files
+
+| File | Purpose |
+|------|---------|
+| `package.json` | npm config: name=opencivil, v0.1.0, all dependencies and scripts |
+| `vite.config.js` | Vite config: SolidJS plugin, port 3041, Bedrock proxy, MuPDF exclusion |
+| `tsconfig.json` | TypeScript config for partial type checking |
+| `index.html` | Main HTML entry point — loads Vite, mounts SolidJS app |
+| `styles.css` | Master CSS file (imports all style modules) |
+| `CLAUDE.md` | Detailed architecture doc with diagrams, rules, file map |
+| `OPENCIVIL.md` | OpenCivil fork documentation — what's new, quick start |
+
+#### 4.2.2 `js/` Entry Points
+
+| File | Purpose |
+|------|---------|
+| `main.js` | Application entry point — initialization sequence, event wiring |
+| `bridge.ts` | **Critical facade** — vanilla JS calls this to reach SolidJS store functions |
+| `theme-init.js` | Early theme detection (prevents flash of wrong theme) |
+
+#### 4.2.3 `js/core/` — Central State & Platform
+
+| File | Purpose |
+|------|---------|
+| `state.ts` | **Central mutable state** — SolidJS `createMutable`, per-document DocumentState, ~70 getter/setter properties |
+| `platform.js` | **Unified Tauri API wrapper** (~508 lines) — file dialogs, binary I/O, window management, `invoke()` |
+| `preferences.js` | Preferences load/save/apply. Theme management (5 themes). Per-annotation default styles |
+| `constants.ts` | Application-wide constants (annotation types, tool names, defaults) |
+| `undo-manager.js` | Undo/redo system — up to 100 levels. Records annotations, pages, watermarks, bookmarks |
+
+#### 4.2.4 `js/core/stores/` — State Sub-Stores
+
+| File | Purpose |
+|------|---------|
+| `interaction-store.ts` | Drawing, dragging, panning, measuring, rubber-banding, snapping state |
+| `clipboard-store.ts` | Single and multi-annotation copy/paste state |
+| `editing-store.ts` | Text editing state (annotation + PDF text) |
+| `document-helpers.ts` | Document state management helpers |
+| `selection-helpers.ts` | Multi-selection state helpers |
+
+#### 4.2.5 `js/annotations/` — Annotation Engine
+
+| File | Purpose |
+|------|---------|
+| `factory.js` | Creates annotation objects with defaults. `createAnnotation()`, `cloneAnnotation()` |
+| `rendering.js` | **Master renderer** — draws 20+ annotation types on overlay canvas via Canvas2D |
+| `geometry.js` | Hit-testing — `findAnnotationAt(x,y)` with rotation-aware point-in-shape |
+| `handles.js` | Resize/rotate handle calculation for selected annotations |
+| `transforms.js` | Move, resize, rotate operations. Callout leader recalc, dimension text updates |
+| `alignment.js` | Multi-select alignment: left/center/right/top/middle/bottom, distribution |
+| `clipboard.js` | Copy/paste/duplicate. Image paste from system clipboard |
+| `measurement.js` | Distance, area, perimeter with scale calibration. Arc segments, holes, formatting |
+| `stamps.js` | Built-in stamps (10 standard + 16 AEC) with SVG rasterization |
+| `signature.js` | Signature drawing dialog — multi-stroke, save up to 5 |
+| `redaction.js` | Mark areas for redaction, apply to permanently remove content |
+| `xfdf.js` | XFDF import/export for Bluebeam compatibility |
+| `z-order.js` | Z-ordering, rotation, horizontal/vertical flip |
+| `smart-guides.js` | Alignment guides while dragging — snaps to edges/centers |
+| `spatial-index.js` | Grid-based spatial index for fast viewport queries |
+| `scale-bar.js` | Visual scale bar creation, scale detection from PDF |
+| `dynamic-scaling.js` | Viewport-scale-dependent annotation sizing |
+| `image-drop.js` | Drag-and-drop image insertion |
+
+#### 4.2.6 `js/annotations/rendering/` — Rendering Sub-Modules
+
+| File | Purpose |
+|------|---------|
+| `shapes.js` | Canvas2D drawing for all shape types |
+| `measurements.js` | Measurement annotation rendering with dimension text |
+| `decorations.js` | Line endings (arrows, circles, diamonds), border styles |
+| `hatch-patterns.js` | Cross-hatch, diagonal, dots fill patterns |
+| `comment-icons.js` | Sticky note icon rendering |
+| `selection.js` | Selection rectangle, resize/rotation handles |
+| `ui-state.js` | Preview rendering during drawing |
+
+#### 4.2.7 `js/pdf/` — PDF Processing Layer
+
+| File | Purpose |
+|------|---------|
+| `loader.js` | **PDF loading orchestrator** — PDF.js + pdf-lib, `originalBytesCache`, PDF/A detection |
+| `renderer.js` | **Page rendering** — canvas with HiDPI, single/continuous mode, MuPDF fallback, zoom |
+| `saver.js` | **PDF saving** — app annotations → PDF dicts via pdf-lib, Y-flip, CropBox coords |
+| `page-manager.js` | Insert, delete, extract, reorder, merge, replace pages |
+| `exporter.js` | Export as PNG/JPEG (72-600 DPI), raster PDF, annotation image |
+| `form-layer.js` | AcroForms/XFA rendering, JavaScript validation, toggle actions |
+| `link-layer.js` | Clickable internal/external links |
+| `crop-margins.js` | Auto-detect whitespace, apply CropBox trim |
+| `pdf-viewport.js` | GPU-accelerated pan/zoom, screen↔world transforms |
+| `tile-renderer.js` | Tile-based rendering for large pages, LRU cache |
+| `vector-renderer.js` | Renders Rust draw commands on Canvas2D |
+| `mupdf-renderer.js` | MuPDF WASM fallback renderer |
+
+#### 4.2.8 `js/pdf/loader/` — Loading Sub-Modules
+
+| File | Purpose |
+|------|---------|
+| `annotation-converter.js` | PDF.js annotations → app annotation model |
+| `color-extraction.js` | pdf-lib color extraction (interior/border) |
+| `image-extraction.js` | Extract embedded images from annotations |
+| `pdf-helpers.js` | Page dimension calculation, rotation helpers |
+
+#### 4.2.9 `js/pdf/saver/` — Saving Sub-Modules
+
+| File | Purpose |
+|------|---------|
+| `bookmarks.js` | Save bookmark/outline tree |
+| `text-edits.js` | Save inline PDF text edits |
+| `watermarks.js` | Bake watermarks/headers/footers into PDF |
+| `utils.js` | Color conversion, rectangle math |
+
+#### 4.2.10 `js/pdf/form-layer/` — Form Sub-Modules
+
+| File | Purpose |
+|------|---------|
+| `js-parser.js` | Parse PDF form field JavaScript actions |
+| `validation-ui.js` | Form validation error UI |
+
+#### 4.2.11 `js/tools/` — Tool Management
+
+| File | Purpose |
+|------|---------|
+| `tool-dispatcher.js` | **Central event router** — pointer events → active tool |
+| `manager.js` | Tool switching — `setTool()`, cursor, text selection, PDF/A restrictions |
+| `tool-registry.js` | Registry pattern for tool definitions |
+| `tool-context.js` | Context builder for tool handlers |
+| `annotation-creators.js` | Creates annotations from tool draw actions |
+| `snap-engine.js` | **Snap engine** — endpoint/midpoint/center/edge/intersection/perpendicular snapping |
+| `pdf-snap-extractor.js` | Extract PDF vector geometry for snapping |
+| `pdf-element-detector.js` | Detect PDF elements under cursor |
+| `shape-preview.js` | Shape preview while drawing |
+| `pan-handler.js` | Pan/scroll handling, middle-button pan |
+| `keyboard-handlers.js` | All keyboard shortcuts |
+| `screenshot.js` | Full-page and region screenshot |
+| `text-edit-tool.js` | Inline PDF text editing |
+| `text-editing.js` | Text annotation editing |
+
+#### 4.2.12 `js/tools/tools/` — Individual Tools (19)
+
+| File | Purpose |
+|------|---------|
+| `index.js` | Registers all tools |
+| `select-tool.js` | Selection, rubber-band, drag, resize |
+| `hand-tool.js` | Pan tool |
+| `draw-tool.js` | Freehand pen |
+| `line-tool.js` | Line and arrow |
+| `shape-tool.js` | Rectangle, ellipse, cloud |
+| `polyline-tool.js` | Polyline, polygon |
+| `text-tool.js` | Text box, callout |
+| `measurement-tool.js` | Distance, area, perimeter |
+| `arc-tool.js` | Three-point arc |
+| `angle-tool.js` | Angle measurement |
+| `calibration-pick-tool.js` | Scale calibration pick |
+| `scalebar-tool.js` | Visual scale bar placement |
+| `viewport-tool.js` | Viewport scale for multi-scale drawings |
+| `array-tool.js` | Array/replicate annotations |
+| `extend-tool.js` | Extend line to intersection |
+| `trim-tool.js` | Trim line at intersection |
+| `hover-translate-tool.js` | One-click move |
+| `plugin-tool.js` | Plugin-registered custom tools |
+
+#### 4.2.13 `js/text/` — Text Layer & Selection
+
+| File | Purpose |
+|------|---------|
+| `text-layer.js` | Selectable text layer from PDF.js or Rust spans |
+| `text-selection.js` | Mouse drag selection, context menu, quad points |
+| `text-markup.js` | Highlight, underline, strikethrough from selection |
+| `rust-text-extraction.js` | Rust `extract_text` via Tauri IPC, cached |
+
+#### 4.2.14 `js/search/` — Find & Replace
+
+| File | Purpose |
+|------|---------|
+| `find-controller.js` | Search engine — text extraction, pattern matching, replace |
+| `find-bar.js` | Find bar UI — search input, navigation, highlight, replace |
+
+#### 4.2.15 `js/aec/` — AEC Module (OpenCivil-Specific)
+
+| File | Purpose |
+|------|---------|
+| `aec-extractor.js` | **Core AEC parser** — regex extraction: stations, elevations, pipes, slopes, manholes, catch basins |
+| `bedrock-ocr.js` | AWS Bedrock AI — render pages as images, AI-powered AEC data extraction |
+| `ocr-extraction.js` | Tesseract.js OCR — client-side, 4x scale, preprocessing |
+| `spatial-grouper.js` | Groups AEC data by spatial proximity into structures |
+| `civil3d-export.js` | **Civil3D LandXML export** — storm sewer structures, pipes, coordinates |
+| `xlsx-export.js` | XLSX spreadsheet export via SheetJS |
+| `measurement-export.js` | Measurement annotations → CSV export |
+
+#### 4.2.16 `js/services/` — External Services
+
+| File | Purpose |
+|------|---------|
+| `ai-api.js` | AI service client — auth, registration, chat sync/stream |
+| `ai-translate.js` | AI document translation — page-by-page with undo |
+| `connectivity.js` | Network detection, retry with backoff |
+| `input-history.js` | AI chat history persistence |
+| `mini-markdown.js` | Lightweight Markdown→HTML for chat responses |
+
+#### 4.2.17 `js/plugins/` — Plugin System
+
+| File | Purpose |
+|------|---------|
+| `plugin-manager.js` | Plugin lifecycle — install, load, unload |
+| `plugin-api.js` | Plugin API sandbox with controlled access |
+| `annotation-type-registry.js` | Custom annotation type registry |
+| `palette-registry.js` | Custom tool palette registry |
+
+#### 4.2.18 `js/watermark/` — Watermarks
+
+| File | Purpose |
+|------|---------|
+| `watermark-dialog.js` | Watermark/header/footer creation dialog |
+| `watermark-renderer.js` | Canvas rendering — behind/in-front, variables |
+
+#### 4.2.19 `js/stores/` — Persistent Stores
+
+| File | Purpose |
+|------|---------|
+| `places.js` | Bookmarked folder places |
+| `sessions.js` | Named workspace session save/restore |
+
+#### 4.2.20 `js/utils/` — Utilities
+
+| File | Purpose |
+|------|---------|
+| `colors.js` | Color conversion (hex↔array) |
+| `fonts.js` | System font detection |
+| `helpers.js` | Date formatting, ID generation, angle snapping |
+| `math.js` | Point-to-line distance, point-near-shape |
+
+#### 4.2.21 `js/mobile/` — Mobile Support
+
+| File | Purpose |
+|------|---------|
+| `touch-gestures.js` | Pinch-zoom, swipe navigation, double-tap |
+| `recent-files.js` | Recent files with pin/unpin |
+
+#### 4.2.22 `js/types/` — TypeScript Types
+
+| File | Purpose |
+|------|---------|
+| `annotation.ts` | 20+ annotation type definitions |
+| `document.ts` | DocumentState interface |
+| `preferences.ts` | Preferences types |
+| `ai.ts` | AI service types |
+| `global.d.ts` | Global declarations (__TAURI__, module types) |
+
+#### 4.2.23 `js/i18n/` — Internationalization
+
+| File | Purpose |
+|------|---------|
+| `config.js` | i18next init — 37 languages, 8 namespaces |
+| `useTranslation.js` | SolidJS reactive hook, Farsi/Arabic digit localization |
+
+**37 Languages × 8 namespaces = ~296 JSON files** (appMenu, common, context, dialogs, preferences, properties, ribbon, statusbar)
+
+---
+
+### 4.3 SolidJS Components (`js/solid/`)
+
+#### Root
+
+| File | Purpose |
+|------|---------|
+| `App.jsx` | Root desktop component — assembles all UI elements |
+| `MobileApp.jsx` | Root mobile component |
+
+#### Ribbon Tabs (9)
+
+| File | Purpose |
+|------|---------|
+| `Ribbon.jsx` | Ribbon container — tab switching, collapse/expand |
+| `HomeTab.jsx` | Clipboard, undo/redo, font, styles gallery |
+| `CommentTab.jsx` | All annotation tools |
+| `ViewTab.jsx` | Zoom, navigation, view modes, panels |
+| `MeasureTab.jsx` | Distance, area, perimeter, angle, calibration |
+| `OrganizeTab.jsx` | Page operations (insert, delete, merge, rotate) |
+| `ArrangeTab.jsx` | Alignment, distribution, z-order, flip |
+| `FormatTab.jsx` | Fill, stroke, opacity, border, blend mode |
+| `HelpTab.jsx` | Shortcuts, about, preferences, updates |
+| `AecTab.jsx` | **OpenCivil** — Extract Data, Civil3D, AEC Stamps |
+| `AITab.jsx` | Translate, AI chat |
+
+#### UI Components (~22)
+
+| File | Purpose |
+|------|---------|
+| `TitleBar.jsx` | Custom window title bar |
+| `DocumentTabs.jsx` | Multi-tab bar with drag-to-reorder |
+| `StatusBar.jsx` | Page number, zoom, dimensions |
+| `FindBar.jsx` | Search/replace bar |
+| `ToolPalette.jsx` | Floating/dockable annotation tools |
+| `SymbolPalette.jsx` | NEN 1414 + custom symbols |
+| `ContextMenu.jsx` | Right-click context menu |
+| `Dialog.jsx` | Base draggable dialog (Windows-style) |
+| `AecDataPanel.jsx` | AEC data extraction panel |
+| `AIPanel.jsx` | AI chat panel |
+| `ScreenshotOverlay.jsx` | Region screenshot selection |
+| `StickyNotePopup.jsx` | Sticky note content editor |
+
+#### Dialogs (~30)
+
+| File | Purpose |
+|------|---------|
+| `PrintDialog.jsx` | Full print dialog with preview |
+| `CalibrationDialog.jsx` | Scale calibration |
+| `MergePdfsDialog.jsx` | Merge multiple PDFs |
+| `InsertPageDialog.jsx` | Insert blank page |
+| `WatermarkDialog.jsx` | Watermark creation |
+| `HeaderFooterDialog.jsx` | Header/footer with variables |
+| `SignatureDialog.jsx` | Signature drawing/selection |
+| `StampPickerDialog.jsx` | Stamp grid (standard + AEC) |
+| `BookmarkDialog.jsx` | Bookmark create/edit |
+| `ExtensionsDialog.jsx` | Plugin management |
+| `UpdateDialog.jsx` | Auto-update with progress |
+| `ShortcutsDialog.jsx` | Keyboard shortcuts reference |
+| `NewDocDialog.jsx` | New document (size presets) |
+| `CropMarginsDialog.jsx` | Crop margins settings |
+| `ScaleDialog.jsx` | Manual scale entry |
+| `ViewportScaleDialog.jsx` | Viewport-specific scale |
+| `TitleBlockDialog.jsx` | Title block template |
+| `AITranslateDialog.jsx` | AI translation options |
+| *(+ 12 more dialogs)* | Confirm, message, feedback, form validation, etc. |
+
+#### Left Panel (11 tabs)
+
+| File | Purpose |
+|------|---------|
+| `ThumbnailsPanel.jsx` | Page thumbnails — grid, drag-to-reorder |
+| `BookmarksPanel.jsx` | Bookmark tree — hierarchical, editable |
+| `AnnotationsPanel.jsx` | Annotation list — grouped by page |
+| `MeasurementsPanel.jsx` | Measurement list with values |
+| `AttachmentsPanel.jsx` | File attachments |
+| `SignaturesPanel.jsx` | Digital signature validation |
+| `LayersPanel.jsx` | PDF layers visibility toggle |
+| `FormFieldsPanel.jsx` | Form field listing |
+| `DestinationsPanel.jsx` | Named destinations |
+| `LinksPanel.jsx` | Link annotations |
+| `TagsPanel.jsx` | PDF structure tags (accessibility) |
+
+#### Properties Panel (18 sections)
+
+| File | Purpose |
+|------|---------|
+| `PropertiesPanel.jsx` | Container — annotation properties or doc info |
+| `GeneralSection.jsx` | Type, author, date |
+| `AppearanceSection.jsx` | Fill, stroke, opacity, blend mode |
+| `DimensionsSection.jsx` | Position, size, rotation |
+| `ContentSection.jsx` | Text content |
+| `TextFormatSection.jsx` | Font, size, weight, alignment |
+| `HatchPatternSection.jsx` | Hatch fill patterns |
+| `LineEndingsSection.jsx` | Arrow styles |
+| `MeasurementSection.jsx` | Scale, units, precision |
+| `ImageSection.jsx` | Image properties |
+| `RepliesSection.jsx` | Reply thread |
+| `ColorPalettePicker.jsx` | Color palette picker |
+
+#### Preferences Dialog
+
+| File | Purpose |
+|------|---------|
+| `PreferencesDialog.jsx` | Tabbed preferences dialog |
+| `GeneralTab.jsx` | Theme, language, startup |
+| `PageDisplayTab.jsx` | Default zoom, view mode |
+| `AnnotationsTab.jsx` | Default colors, widths |
+| `BehaviorTab.jsx` | Auto-save, snap settings |
+| `FileAssocTab.jsx` | Default PDF app (Windows) |
+| `VirtualPrinterTab.jsx` | Virtual printer install |
+
+#### SolidJS Stores (32)
+
+| File | Purpose |
+|------|---------|
+| `ribbonStore.js` | Active tab, collapse state |
+| `dialogStore.js` | Dialog stack, parameters |
+| `leftPanelStore.js` | Panel visibility, active tab |
+| `propertiesStore.js` | Properties panel state |
+| `findBarStore.js` | Search state |
+| `contextMenuStore.js` | Menu position, items |
+| `aecStore.js` | AEC extraction state |
+| `aiStore.js` | AI panel state |
+| `formatStore.js` | Format selections |
+| `fontStore.js` | Available/selected fonts |
+| `symbolStore.js` | Symbol palette state |
+| `screenshotStore.js` | Screenshot overlay state |
+| *(+ 10 panel stores)* | thumbnails, bookmarks, annotations, attachments, signatures, layers, form fields, destinations, links, tags |
+| *(+ 8 more stores)* | appMenu, loading, formFieldsBar, pdfaBar, pdfTextEdit, textEditOverlay, stickyNote, schedule, defaultAppBar, paletteOrder |
+
+---
+
+### 4.4 Vanilla JS UI (`js/ui/`)
+
+| File | Purpose |
+|------|---------|
+| `setup.js` | UI initialization, DOM events, canvas setup |
+| `dom-elements.js` | Cached DOM element references |
+| `cursor.js` | Cursor management by tool/state |
+| `chrome/tabs.js` | Multi-tab document management |
+| `chrome/status-bar.js` | Status bar updates |
+| `chrome/context-menus.js` | Context menu construction |
+| `chrome/updater.js` | Auto-update check/download |
+| `cursors/annotation-cursors.js` | Custom cursor images |
+| `panels/*.js` | 11 vanilla JS panel implementations |
+| `setup/navigation-events.js` | Page navigation events |
+
+---
+
+### 4.5 CSS Stylesheets (23)
+
+| File | Purpose |
+|------|---------|
+| `base.css` | CSS reset, scrollbar, global variables |
+| `layout.css` | Main layout grid |
+| `themes.css` | 5 themes (dark, light, blue, high-contrast, system) |
+| `ribbon.css` | Ribbon styling |
+| `document-tabs.css` | Tab bar |
+| `titlebar.css` | Custom title bar |
+| `panels.css` | Left/right panels |
+| `properties-panel.css` | Properties panel |
+| `dialogs.css` | Modal dialogs (Windows Forms aesthetic) |
+| `find-bar.css` | Find/replace bar |
+| `form-layer.css` | Form field overlay |
+| `text-layer.css` | Text selection layer |
+| `tool-palette.css` | Floating tool palette |
+| `symbol-palette.css` | Symbol palette |
+| `app-menu.css` | Backstage menu |
+| `mobile.css` | Mobile responsive |
+| `rtl.css` | Right-to-left support |
+| `ai-panel.css` | AI chat panel |
+| *(+ 5 more)* | status-bar, context-menu, page-controls, fonts, schedule-panel |
+
+---
+
+### 4.6 Rust Backend (`src-tauri/`)
+
+| File | Purpose |
+|------|---------|
+| `src/lib.rs` | **All 44 Tauri commands** + app init, plugins, window setup |
+| `src/main.rs` | Entry point — calls `app_lib::run()` |
+| `Cargo.toml` | Dependencies: tauri 2.10.2, 8 plugins, open-pdf-render, reqwest, zip |
+| `tauri.conf.json` | Product "OpenCivil", window, CSP, bundle targets, updater |
+| `nsis/*.nsi` | Windows installer template and hooks |
+| `icons/` | App icons (32px, 128px, icns, ico, png) |
+| `capabilities/` | Tauri 2 capability files (plugin/command permissions) |
+
+---
+
+### 4.7 `open-pdf-render/` — Pure Rust PDF Renderer
+
+| File | Purpose |
+|------|---------|
+| `src/lib.rs` | Public API: `PdfRenderer`, `RenderedPage`, `TextSpan`, `PageType`, `RenderError` |
+| `src/parser.rs` | `DocumentHandle` — load PDF, page dimensions, render, extract commands/text |
+| `src/interpreter.rs` | PDF content stream interpreter — graphics operators, draw commands, text spans |
+| `src/renderer.rs` | `SkiaRenderer` — RGBA bitmap via tiny-skia (fill, stroke, images, CTM) |
+| `src/text_renderer.rs` | Text glyph rendering on tiny-skia paths |
+| `src/font_parser.rs` | `ParsedFont` — TrueType/OpenType glyph outlines via ttf-parser |
+| `src/fonts.rs` | `FontRegistry` — font caching, Type1/TrueType/CIDFont, system fallback |
+| `src/encoding.rs` | WinAnsi, MacRoman, glyph→Unicode, Differences parsing |
+| `src/color.rs` | CMYK→RGB, Gray→RGB, RGB→RGBA8 |
+| `src/graphics_state.rs` | `GraphicsState` stack — CTM, colors, line properties |
+| `src/draw_commands.rs` | `DrawCommandBuffer` — binary command serialization (25 opcodes) |
+| `src/image_decode.rs` | Inline image decoding (placeholder) |
+| `tests/` | **22 test files** — rendering, fonts, encoding, CMap, text, real PDFs |
+| `examples/inspect_page.rs` | CLI page inspector tool |
+
+---
+
+### 4.8 Packaging & Distribution
+
+| Path | Purpose |
+|------|---------|
+| `flatpak/` | Flatpak build manifest + desktop entry + AppStream metadata |
+| `snap/` | Snap package config + desktop entry + icon |
+| `android-apk/` | Android build outputs |
+| `mcp-server/` | MCP testing server (CDP-based tests) |
+| `docs/` | Screenshots, planning docs, design specs |
+| `assets/nen1414/` | ~95 NEN 1414 Dutch fire safety symbol PNGs |
+
+---
+
+## 5. Feature Map
+
+| Feature | Implementing Files |
+|---------|-------------------|
+| **PDF rendering** | `pdf/renderer.js`, `pdf/tile-renderer.js`, `pdf/vector-renderer.js`, `pdf/mupdf-renderer.js`, `open-pdf-render/` |
+| **Pan/zoom viewport** | `pdf/pdf-viewport.js`, `tools/pan-handler.js` |
+| **Annotation drawing** | `tools/tool-dispatcher.js`, `tools/annotation-creators.js`, `annotations/factory.js` |
+| **Annotation rendering** | `annotations/rendering.js`, `annotations/rendering/*` |
+| **Shape tools** | `tools/tools/shape-tool.js`, `line-tool.js`, `polyline-tool.js`, `arc-tool.js` |
+| **Measurement tools** | `tools/tools/measurement-tool.js`, `annotations/measurement.js`, `scale-bar.js` |
+| **Text annotations** | `tools/tools/text-tool.js`, `tools/text-editing.js` |
+| **PDF text editing** | `tools/text-edit-tool.js` |
+| **Stamps** | `annotations/stamps.js`, `StampPickerDialog.jsx` |
+| **Signatures** | `annotations/signature.js`, `SignatureDialog.jsx` |
+| **Snap engine** | `tools/snap-engine.js`, `tools/pdf-snap-extractor.js` |
+| **Selection & alignment** | `annotations/alignment.js`, `smart-guides.js`, `select-tool.js` |
+| **Clipboard** | `annotations/clipboard.js` |
+| **Undo/redo** | `core/undo-manager.js` |
+| **PDF saving** | `pdf/saver.js`, `pdf/saver/*` |
+| **Page management** | `pdf/page-manager.js` |
+| **XFDF import/export** | `annotations/xfdf.js` |
+| **Form fields** | `pdf/form-layer.js`, `pdf/form-layer/*` |
+| **Find & replace** | `search/find-controller.js`, `search/find-bar.js` |
+| **Watermarks** | `watermark/watermark-dialog.js`, `watermark-renderer.js` |
+| **Multi-tab** | `ui/chrome/tabs.js`, `DocumentTabs.jsx` |
+| **Printing** | `PrintDialog.jsx`, Tauri: `get_printers`, `print_pdf` |
+| **Export** | `pdf/exporter.js` |
+| **Plugin system** | `plugins/plugin-manager.js`, `plugin-api.js` |
+| **AEC extraction** | `aec/aec-extractor.js`, `bedrock-ocr.js`, `ocr-extraction.js` |
+| **AEC spatial grouping** | `aec/spatial-grouper.js` |
+| **Civil3D export** | `aec/civil3d-export.js` |
+| **XLSX export** | `aec/xlsx-export.js` |
+| **AI chat** | `services/ai-api.js`, `AIPanel.jsx` |
+| **AI translation** | `services/ai-translate.js`, `AITranslateDialog.jsx` |
+
+---
+
+## 6. Tauri Commands (44 IPC Commands)
+
+### File Operations (8)
+
+| Command | Purpose |
+|---------|---------|
+| `read_file` | Read binary file from disk |
+| `write_file` | Write base64-encoded data to file |
+| `file_exists` | Check if file exists |
+| `delete_file` | Delete a file |
+| `rename_file` | Rename/move a file |
+| `lock_file` | Lock file (FILE_SHARE_READ on Windows) |
+| `unlock_file` | Release file lock |
+| `allow_fs_scope` | Grant Tauri FS plugin access to path |
+
+### Session & Preferences (5)
+
+| Command | Purpose |
+|---------|---------|
+| `save_session` | Save session JSON to app data dir |
+| `load_session` | Load session JSON |
+| `save_preferences` | Save preferences JSON |
+| `load_preferences` | Load preferences JSON |
+| `get_username` | Get OS username |
+
+### PDF Rendering (10)
+
+| Command | Purpose |
+|---------|---------|
+| `render_pdf_page` | Render page → RGBA temp file |
+| `render_thumbnail` | Render thumbnail → base64 JPEG |
+| `analyze_page_type` | Vector or Tile classification |
+| `extract_draw_commands` | Binary draw command buffer |
+| `extract_draw_commands_batch` | Parallel batch (rayon) |
+| `extract_text` | Text spans with positions |
+| `extract_text_batch` | Parallel batch text |
+| `extract_page_text` | Text as JSON positions |
+| `get_page_dimensions` | All page dimensions (parallel) |
+| `invalidate_pdf_cache` / `clear_pdf_cache` | Cache management |
+
+### Printing (4)
+
+| Command | Purpose |
+|---------|---------|
+| `get_printers` | List printers via PowerShell CIM |
+| `print_pdf` | Print via ShellExecuteW |
+| `open_printer_properties` | Printer preferences dialog |
+| `write_temp_pdf` | Write temp file for printing |
+
+### Virtual Printer (3)
+
+| Command | Purpose |
+|---------|---------|
+| `install_virtual_printer` | Install via PowerShell + UAC |
+| `remove_virtual_printer` | Remove virtual printer |
+| `is_virtual_printer_installed` | Check existence |
+
+### Plugin System (4)
+
+| Command | Purpose |
+|---------|---------|
+| `list_plugins` | List installed plugins |
+| `install_plugin` | Extract ZIP, validate, install |
+| `uninstall_plugin` | Remove plugin |
+| `read_plugin_file` | Read plugin file (path-traversal safe) |
+
+### System (7)
+
+| Command | Purpose |
+|---------|---------|
+| `get_opened_file` | Files from command line |
+| `is_dev_mode` | Debug mode check |
+| `is_default_pdf_app` | Default handler check (Windows) |
+| `open_default_apps_settings` | Open Windows settings |
+| `open_url` | Open in browser |
+| `get_temp_dir` | System temp directory |
+| `play_alert_sound` | Platform-specific alert |
+
+### Networking (2)
+
+| Command | Purpose |
+|---------|---------|
+| `download_pdf_from_url` | Download PDF to temp |
+| `list_pdf_files` | List PDFs in directory |
+
+---
+
+## 7. Data Flow
+
+### 7.1 Opening a PDF
+
+```
+User selects file → platform.openFileDialog() → Tauri FS plugin reads bytes
+→ originalBytesCache stores raw bytes
+→ PDF.js loads document (from bytes.slice()) → pdfDoc
+→ pdf-lib loads document (from originalBytesCache) → pdfDocLib
+→ Rust parses document → DocHandleCache stores handle
+→ renderer.renderPage() → PDF.js renders to <canvas id="pdf-canvas">
+→ text-layer created (from Rust or PDF.js)
+→ form-layer + link-layer created
+→ annotations loaded per-page (annotation-converter.js)
+→ annotations drawn on <canvas id="annotation-canvas">
+```
+
+### 7.2 Saving a PDF
+
+```
+User clicks Save → saver.savePDF()
+→ pdf-lib reads originalBytesCache
+→ For each page + annotation:
+    → Convert app coords → PDF coords (Y-flip, CropBox offset)
+    → Create PDF annotation dict via pdf-lib
+→ Save form values, bookmarks, watermarks, text edits
+→ pdfDocLib.save() → new Uint8Array
+→ unlock_file() → write bytes → lock_file()
+→ Update originalBytesCache + invalidate_pdf_cache (Rust)
+```
+
+### 7.3 AEC Data Extraction
+
+```
+User clicks "Extract Data" (AEC tab)
+→ For each page:
+    → Get text spans (Rust extract_text or PDF.js)
+    → aec-extractor.extractAecData(spans)
+    → Optionally: ocrPage() or aiExtractPage()
+→ spatial-grouper.groupByBoundingBox(records)
+→ Results → aecStore → AecDataPanel
+→ Export: CSV, XLSX, or Civil3D LandXML
+```
+
+---
+
+## 8. Build & Deployment
+
+```bash
+# Development
+cd open-pdf-studio
+npm install
+npm run dev          # Browser-only on :3041
+npm run tauri dev    # Full desktop app with hot reload
+
+# Production
+npm run tauri build  # → src-tauri/target/release/bundle/
+```
+
+### Platforms
+- **Windows**: NSIS installer (.exe) with file association
+- **macOS**: DMG (universal binary — Intel + Apple Silicon)
+- **Linux**: .deb, AppImage, Snap, Flatpak
+- **Android**: APK (Tauri mobile)
+- **Web**: Vite → `dist/` (static host, limited features)
+
+---
+
+## 9. Git Remotes
+
+```
+origin:     https://github.com/OpenAEC-Foundation/open-pdf-studio.git  (upstream)
+opencivil:  https://github.com/sankalpv/OpenCivil.git  (fork)
+```
+
+---
+
+## 10. Key Numbers
+
+| Metric | Count |
+|--------|-------|
+| JS/TS/JSX source files | ~180 |
+| Rust source files | 12 |
+| Rust test files | 22 |
+| SolidJS components | ~75 |
+| SolidJS stores | 32 |
+| Tauri commands | 44 |
+| Annotation types | 20+ |
+| Ribbon tabs | 9 |
+| Left panel tabs | 11 |
+| Languages | 37 |
+| i18n JSON files | ~296 |
+| CSS stylesheets | 23 |
+| Tools | 19+ |
+| Dialogs | 30+ |
+| AEC stamps | 16 |
+| Standard stamps | 10 |
+| Platforms | 5 |
+
+---
+
+*Generated from full codebase analysis — April 2026*
+</script>
+<script>
+document.getElementById('output').innerHTML = marked.parse(document.getElementById('content').textContent);
+</script>
+</body>
+</html>

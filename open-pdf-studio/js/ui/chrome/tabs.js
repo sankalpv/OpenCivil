@@ -359,7 +359,7 @@ export function updateTabBar() {
  */
 export function updateWindowTitle() {
   const doc = getActiveDocument();
-  const baseTitle = `Open PDF Studio v${__APP_VERSION__}`;
+  const baseTitle = `Open Civil Studio V${__APP_VERSION__}`;
 
   // Update document.title (browser/OS window title)
   if (doc) {
