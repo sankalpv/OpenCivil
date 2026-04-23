@@ -1,13 +1,18 @@
-// OpenCivil — Network Overlay Renderer
+// OpenCivil — Network Overlay Renderer v2
 // Renders the confirmed pipe network on top of the PDF canvas.
-// Separate from generic annotation rendering.
 //
-// - Confirmed structures: green circles with labels
-// - Confirmed pipes: green solid lines with length labels
-// - Unresolved pipes: orange dashed stubs with warning indicator
-// - Selected pipe: red highlight
+// Coordinate priority for structure display positions:
+//   1. sourceX/sourceY  (original PDF page coords — best)
+//   2. pdfX/pdfY or pageX/pageY (alternative names)
+//   3. Fallback schematic layout (when all coords are unusable)
 //
-// Called from annotations/rendering.js after annotation drawing.
+// Does NOT use easting/northing (those are export/local-grid coordinates).
+//
+// Rendering:
+//   - Confirmed structures: green circles with labels
+//   - Confirmed pipes: green solid lines with length labels
+//   - Unresolved pipes: orange dashed STUBS (not full lines) with floating labels
+//   - Selected pipe: red highlight
 
 import {
   networkGraph, selectedPipeId, selectedUnresolvedPipeId,
@@ -18,28 +23,23 @@ import {
 // Configuration
 // ============================================================
 
-const STRUCT_RADIUS = 8;       // px in app-space
+const STRUCT_RADIUS = 8;
 const PIPE_LINE_WIDTH = 3;
 const SELECTED_LINE_WIDTH = 5;
 const LABEL_FONT = 'bold 10px sans-serif';
 const PIPE_LABEL_FONT = '9px sans-serif';
+const STUB_LENGTH = 40; // px for unresolved pipe stubs
 
-const COLOR_CONFIRMED_STRUCT = '#22c55e';  // green-500
-const COLOR_CONFIRMED_PIPE = '#16a34a';    // green-600
-const COLOR_UNRESOLVED_PIPE = '#f59e0b';   // amber-500
-const COLOR_SELECTED = '#ef4444';          // red-500
+const COLOR_CONFIRMED_STRUCT = '#22c55e';
+const COLOR_CONFIRMED_PIPE = '#16a34a';
+const COLOR_UNRESOLVED_PIPE = '#f59e0b';
+const COLOR_SELECTED = '#ef4444';
 const COLOR_LABEL_BG = 'rgba(255,255,255,0.85)';
 
 // ============================================================
 // Main Render Function
 // ============================================================
 
-/**
- * Render the network overlay on the annotation canvas context.
- * Called after all annotations are drawn, before selection handles.
- *
- * @param {CanvasRenderingContext2D} ctx  Already transformed for zoom/pan
- */
 export function renderNetworkOverlay(ctx) {
   const graph = networkGraph();
   if (!graph) return;
@@ -50,9 +50,6 @@ export function renderNetworkOverlay(ctx) {
 
   if (structures.length === 0 && pipes.length === 0 && unresolvedPipes.length === 0) return;
 
-  // Build structure position lookup (id → {x, y})
-  // Uses PDF source coordinates when valid, falls back to computed layout
-  // when positions are unusable (e.g. AI extraction where all x=0)
   const structPos = _buildStructurePositions(structures, graph.allStructureList || structures, ctx);
 
   const selPipeId = selectedPipeId();
@@ -60,7 +57,7 @@ export function renderNetworkOverlay(ctx) {
 
   ctx.save();
 
-  // ── Draw confirmed pipes ──
+  // ── Draw confirmed pipes (solid green lines) ──
   for (const pipe of pipes) {
     const startPos = structPos.get(pipe.startRef);
     const endPos = structPos.get(pipe.endRef);
@@ -78,41 +75,53 @@ export function renderNetworkOverlay(ctx) {
     ctx.lineTo(endPos.x, endPos.y);
     ctx.stroke();
 
-    // Pipe label at midpoint
     const mx = (startPos.x + endPos.x) / 2;
     const my = (startPos.y + endPos.y) / 2;
     _drawPipeLabel(ctx, mx, my, `${pipe.length} LF`, color);
   }
 
-  // ── Draw unresolved pipes ──
+  // ── Draw unresolved pipes as STUBS (not full lines) ──
   for (const pipe of unresolvedPipes) {
-    const startPos = structPos.get(pipe.startRef);
-    const endPos = structPos.get(pipe.endRef);
-
     const isSelected = (pipe.name === selUnresolvedId || pipe.id === selUnresolvedId);
     const color = isSelected ? COLOR_SELECTED : COLOR_UNRESOLVED_PIPE;
     const lw = isSelected ? SELECTED_LINE_WIDTH : PIPE_LINE_WIDTH;
 
-    if (startPos && endPos) {
-      // Draw dashed line between endpoints
+    // Find the nearest structure this pipe references
+    const startPos = structPos.get(pipe.startRef);
+    const endPos = structPos.get(pipe.endRef);
+    const anchorPos = startPos || endPos;
+
+    if (anchorPos) {
+      // Draw a short dashed stub extending from the anchor structure
+      const stubAngle = _getStubAngle(anchorPos, structPos, pipe);
+      const stubEndX = anchorPos.x + Math.cos(stubAngle) * STUB_LENGTH;
+      const stubEndY = anchorPos.y + Math.sin(stubAngle) * STUB_LENGTH;
+
       ctx.strokeStyle = color;
       ctx.lineWidth = lw;
-      ctx.setLineDash([8, 4]);
+      ctx.setLineDash([6, 3]);
       ctx.beginPath();
-      ctx.moveTo(startPos.x, startPos.y);
-      ctx.lineTo(endPos.x, endPos.y);
+      ctx.moveTo(anchorPos.x, anchorPos.y);
+      ctx.lineTo(stubEndX, stubEndY);
       ctx.stroke();
       ctx.setLineDash([]);
 
-      const mx = (startPos.x + endPos.x) / 2;
-      const my = (startPos.y + endPos.y) / 2;
-      _drawPipeLabel(ctx, mx, my, `⚠ ${pipe.length} LF (unresolved)`, color);
+      // Draw a small "?" circle at the stub end
+      ctx.beginPath();
+      ctx.arc(stubEndX, stubEndY, 5, 0, 2 * Math.PI);
+      ctx.fillStyle = color;
+      ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 8px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('?', stubEndX, stubEndY);
+
+      // Label
+      _drawPipeLabel(ctx, stubEndX + 15, stubEndY, `⚠ ${pipe.length} LF`, color);
     } else {
-      // No valid endpoints — draw a floating label near the first available structure
-      const anyPos = startPos || endPos || (structures.length > 0 ? structPos.get(structures[0].id) : null);
-      if (anyPos) {
-        _drawPipeLabel(ctx, anyPos.x + 20, anyPos.y + 20, `⚠ ${pipe.length} LF (unresolved)`, color);
-      }
+      // No anchor at all — draw floating label in visible area
+      _drawPipeLabel(ctx, 100, 50, `⚠ ${pipe.length} LF (unresolved, no anchor)`, color);
     }
   }
 
@@ -122,7 +131,7 @@ export function renderNetworkOverlay(ctx) {
     if (!pos) continue;
 
     ctx.fillStyle = COLOR_CONFIRMED_STRUCT;
-    ctx.strokeStyle = '#166534'; // green-800
+    ctx.strokeStyle = '#166534';
     ctx.lineWidth = 2;
     ctx.setLineDash([]);
 
@@ -148,7 +157,7 @@ export function renderNetworkOverlay(ctx) {
 }
 
 // ============================================================
-// Pipe Label Helper
+// Helpers
 // ============================================================
 
 function _drawPipeLabel(ctx, x, y, text, color) {
@@ -164,80 +173,95 @@ function _drawPipeLabel(ctx, x, y, text, color) {
   ctx.textBaseline = 'alphabetic';
 }
 
+/** Compute angle for an unresolved pipe stub — point away from the center of all structures. */
+function _getStubAngle(anchorPos, structPos, pipe) {
+  // Default: point downward-right
+  let cx = 0, cy = 0, count = 0;
+  for (const [, pos] of structPos) {
+    cx += pos.x; cy += pos.y; count++;
+  }
+  if (count > 1) {
+    cx /= count; cy /= count;
+    // Point away from center
+    return Math.atan2(anchorPos.y - cy, anchorPos.x - cx);
+  }
+  return Math.PI / 4; // 45° default
+}
+
 // ============================================================
-// Structure Position Builder (with fallback for bad coordinates)
+// Structure Position Builder
 // ============================================================
 
 /**
- * Build display-only positions for structures.
- * Uses real PDF source coordinates when valid. Falls back to a computed
- * layout when positions are unusable (e.g. AI extraction where all x=0).
- *
- * @param {Array} structures      Export-relevant structures
- * @param {Array} allStructures   All extracted structures
- * @param {CanvasRenderingContext2D} [ctx]  For reading canvas dimensions
- * @returns {Map<string, {x: number, y: number}>}
+ * Build display positions for structures.
+ * Priority: sourceX/sourceY > pdfX/pdfY > pageX/pageY > fallback layout
+ * Does NOT use easting/northing (those are export coordinates).
  */
 function _buildStructurePositions(structures, allStructures, ctx) {
   const structPos = new Map();
 
-  // First, collect raw positions
-  const rawPositions = [];
-  for (const s of structures) {
-    rawPositions.push({ id: s.id, x: s.easting || 0, y: s.northing || 0, struct: s });
-  }
+  // Collect all structures with their best available page coordinates
+  const allItems = [...structures];
   for (const s of allStructures) {
-    if (!structPos.has(s.id) && !rawPositions.find(p => p.id === s.id)) {
-      rawPositions.push({ id: s.id, x: s.easting || 0, y: s.northing || 0, struct: s });
-    }
+    if (!allItems.find(a => a.id === s.id)) allItems.push(s);
   }
 
-  // Check if positions are usable: spread must be > 50px in at least one axis
-  const xs = rawPositions.map(p => p.x);
-  const ys = rawPositions.map(p => p.y);
-  const xSpread = Math.max(...xs) - Math.min(...xs);
-  const ySpread = Math.max(...ys) - Math.min(...ys);
-  const positionsValid = (xSpread > 50 || ySpread > 50) && Math.max(...xs) > 10;
+  const rawPositions = [];
+  for (const s of allItems) {
+    // Priority order for display coordinates
+    const x = s.sourceX ?? s.pdfX ?? s.pageX ?? null;
+    const y = s.sourceY ?? s.pdfY ?? s.pageY ?? null;
+    rawPositions.push({ id: s.id, x: x ?? 0, y: y ?? 0, hasCoords: (x !== null && x > 10), struct: s });
+  }
+
+  // Check if we have usable coordinates
+  const withCoords = rawPositions.filter(p => p.hasCoords);
+  const xs = withCoords.map(p => p.x);
+  const ys = withCoords.map(p => p.y);
+  const xSpread = xs.length > 1 ? Math.max(...xs) - Math.min(...xs) : 0;
+  const ySpread = ys.length > 1 ? Math.max(...ys) - Math.min(...ys) : 0;
+  const positionsValid = withCoords.length >= 2 && (xSpread > 50 || ySpread > 50);
 
   if (positionsValid) {
-    // Use real coordinates
     for (const p of rawPositions) {
-      structPos.set(p.id, { x: p.x, y: p.y });
+      if (p.hasCoords) {
+        structPos.set(p.id, { x: p.x, y: p.y });
+      } else {
+        // Position this structure near the centroid of the ones that have coords
+        const avgX = xs.reduce((a, b) => a + b, 0) / xs.length;
+        const avgY = ys.reduce((a, b) => a + b, 0) / ys.length;
+        structPos.set(p.id, { x: avgX + 30, y: avgY + 30 });
+      }
     }
   } else {
-    // ── Fallback: compute display layout across visible page area ──
-    console.log('[network-renderer] Using fallback layout — source coordinates unusable');
+    // ── Fallback schematic layout ──
+    console.log('[network-renderer] Using fallback schematic layout — no usable page coordinates');
 
-    // Get canvas dimensions from the context (app-space)
     let pageW = 800, pageH = 600;
     if (ctx && ctx.canvas) {
-      // The canvas is DPR-scaled; use CSS dimensions or a reasonable estimate
-      const canvas = ctx.canvas;
       const dpr = window.devicePixelRatio || 1;
-      pageW = canvas.width / dpr;
-      pageH = canvas.height / dpr;
+      pageW = ctx.canvas.width / dpr;
+      pageH = ctx.canvas.height / dpr;
     }
 
-    // Sort structures by station (if available) or by ID for stable ordering
     const sorted = [...rawPositions].sort((a, b) => {
       const staA = a.struct?.station || '';
       const staB = b.struct?.station || '';
-      if (staA && staB) return staB.localeCompare(staA); // descending station = upstream first
+      if (staA && staB) return staB.localeCompare(staA);
       return a.id.localeCompare(b.id);
     });
 
-    // Place structures along a diagonal from upper-right to lower-left
-    // This mimics typical plan/profile layout (high station = top-right)
     const margin = 80;
     const usableW = pageW - margin * 2;
-    const usableH = pageH * 0.4; // Use middle 40% of page height
-    const startY = pageH * 0.3;  // Start at 30% from top
+    const usableH = pageH * 0.4;
+    const startY = pageH * 0.3;
 
     for (let i = 0; i < sorted.length; i++) {
       const t = sorted.length > 1 ? i / (sorted.length - 1) : 0.5;
-      const fx = margin + usableW * (1 - t); // Right to left (upstream → downstream)
-      const fy = startY + usableH * t;        // Top to bottom
-      structPos.set(sorted[i].id, { x: fx, y: fy });
+      structPos.set(sorted[i].id, {
+        x: margin + usableW * (1 - t),
+        y: startY + usableH * t,
+      });
     }
   }
 
@@ -248,15 +272,6 @@ function _buildStructurePositions(structures, allStructures, ctx) {
 // Click Hit-Test
 // ============================================================
 
-/**
- * Test if a click at (x, y) in app-space hits a network pipe.
- * Returns true if a pipe was selected, false otherwise.
- *
- * @param {number} x  App-space X
- * @param {number} y  App-space Y
- * @param {number} [threshold=12]  Hit distance in px
- * @returns {boolean}
- */
 export function handleNetworkClick(x, y, threshold = 12) {
   const graph = networkGraph();
   if (!graph) return false;
@@ -265,50 +280,41 @@ export function handleNetworkClick(x, y, threshold = 12) {
   const pipes = graph.pipes || [];
   const unresolvedPipes = graph.unresolvedPipes || [];
 
-  // Build position map using same logic as renderer (including fallback)
   const structPos = _buildStructurePositions(structures, graph.allStructureList || structures, null);
 
-  // Check confirmed pipes first
+  // Check confirmed pipes
   for (const pipe of pipes) {
     const a = structPos.get(pipe.startRef);
     const b = structPos.get(pipe.endRef);
     if (!a || !b) continue;
-
-    const dist = _pointToSegmentDist(x, y, a.x, a.y, b.x, b.y);
-    if (dist < threshold) {
+    if (_pointToSegmentDist(x, y, a.x, a.y, b.x, b.y) < threshold) {
       selectPipe(pipe.name || pipe.id);
       return true;
     }
   }
 
-  // Check unresolved pipes
+  // Check unresolved pipe stubs (approximate: check near anchor structure)
   for (const pipe of unresolvedPipes) {
-    const a = structPos.get(pipe.startRef);
-    const b = structPos.get(pipe.endRef);
-    if (!a || !b) continue;
-
-    const dist = _pointToSegmentDist(x, y, a.x, a.y, b.x, b.y);
-    if (dist < threshold) {
+    const anchor = structPos.get(pipe.startRef) || structPos.get(pipe.endRef);
+    if (!anchor) continue;
+    // Hit-test: within STUB_LENGTH + threshold of anchor
+    const dist = Math.sqrt((x - anchor.x) ** 2 + (y - anchor.y) ** 2);
+    if (dist < STUB_LENGTH + threshold) {
       selectUnresolvedPipe(pipe.name || pipe.id);
       return true;
     }
   }
 
-  // No hit — clear selection
   clearSelection();
   return false;
 }
 
-/** Point-to-line-segment distance. */
 function _pointToSegmentDist(px, py, x1, y1, x2, y2) {
   const dx = x2 - x1, dy = y2 - y1;
   const lenSq = dx * dx + dy * dy;
   if (lenSq === 0) return Math.sqrt((px - x1) ** 2 + (py - y1) ** 2);
-
   let t = ((px - x1) * dx + (py - y1) * dy) / lenSq;
   t = Math.max(0, Math.min(1, t));
-
-  const projX = x1 + t * dx;
-  const projY = y1 + t * dy;
+  const projX = x1 + t * dx, projY = y1 + t * dy;
   return Math.sqrt((px - projX) ** 2 + (py - projY) ** 2);
 }

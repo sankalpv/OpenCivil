@@ -29,6 +29,10 @@ const [aecViewMode, setAecViewMode] = createSignal('structures'); // 'structures
 const [aecIsExtracting, setAecIsExtracting] = createSignal(false);
 const [aecStatusMessage, setAecStatusMessage] = createSignal('No data extracted yet');
 
+// ── Coordinate cache from "Extract Data" for hybrid merge with "AI Extract" ──
+// Maps structure ID → {x, y} from PDF.js/Rust extraction (real page coordinates)
+let _pdfCoordCache = new Map();
+
 /**
  * Extract text from a single page using PDF.js getTextContent().
  * Fallback for browser mode where Rust backend is not available.
@@ -121,6 +125,17 @@ async function runExtraction() {
     setAecStatusMessage(
       `${records.length} records → ${structures.length} structures, ${ungrouped.length} ungrouped (${totalPages} pg, ${method})`
     );
+
+    // Cache structure PDF coordinates for hybrid merge with AI Extract
+    _pdfCoordCache = new Map();
+    for (const r of records) {
+      if ((r.type === 'manhole' || r.type === 'catchBasin') && r.fields?.id) {
+        if (!_pdfCoordCache.has(r.fields.id) && r.source.x > 10) {
+          _pdfCoordCache.set(r.fields.id, { x: r.source.x, y: r.source.y, page: r.source.page });
+        }
+      }
+    }
+    console.log(`[AEC] Cached ${_pdfCoordCache.size} structure coordinates for hybrid merge`);
 
     // Auto-populate the network graph for overlay + review UI
     try {
@@ -280,6 +295,25 @@ async function runAiExtraction() {
     setAecStatusMessage(
       `AI: ${records.length} records → ${structures.length} structures (Claude Opus 4.7)`
     );
+
+    // ── Hybrid merge: inject PDF coordinates from prior "Extract Data" run ──
+    if (_pdfCoordCache.size > 0) {
+      let merged = 0;
+      for (const r of records) {
+        if ((r.type === 'manhole' || r.type === 'catchBasin') && r.fields?.id) {
+          const cached = _pdfCoordCache.get(r.fields.id);
+          if (cached) {
+            r.source.x = cached.x;
+            r.source.y = cached.y;
+            if (cached.page) r.source.page = cached.page;
+            merged++;
+          }
+        }
+      }
+      console.log(`[AEC] Hybrid merge: injected ${merged} PDF coordinates into AI records (cache had ${_pdfCoordCache.size} entries)`);
+    } else {
+      console.log('[AEC] No PDF coordinate cache — run "Extract Data" first for accurate overlay positions');
+    }
 
     // Auto-populate the network graph for overlay + review UI
     try {

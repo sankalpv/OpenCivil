@@ -75,6 +75,7 @@ export function extractStormStructures(records) {
         id, type: r.type, desc: '', rim: null, inverts: [], bottom: null,
         station: null, diameter: null, manholeType: null,
         northing: r.source.y, easting: r.source.x, page: r.source.page,
+        sourceX: r.source.x, sourceY: r.source.y, // Preserve original PDF page coords for rendering
       });
     }
     const s = structs.get(id);
