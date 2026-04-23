@@ -6,6 +6,8 @@
 // - Smart real-world coordinate calculation (station + offset + scale)
 // - Auto-detects alignment direction from PDF coordinates
 // - Falls back gracefully when data is incomplete
+// - Network-builder pipeline: candidate scoring + greedy assignment
+//   (replaces the naive Y-sort + sequential pipe assignment)
 //
 // Importable into:
 // - Autodesk Civil 3D (Import LandXML → Pipe Networks)
@@ -15,6 +17,8 @@
 // Public API (unchanged — callers in AecTab.jsx and AecDataPanel.jsx
 // continue to work without modification):
 //   export function downloadCivil3d(records, options = {})
+
+import { buildConfirmedNetwork } from './network-builder.js';
 
 // ============================================================
 // XML Helpers
@@ -679,8 +683,20 @@ export function recordsToLandXML(records, options = {}) {
     networkName = 'Storm Drain Network',
   } = options;
 
-  const structs = buildStructures(records);
-  const pipes = buildPipes(records, structs);
+  // ── Use network-builder pipeline for correct pipe connections ──
+  // This replaces the old buildStructures() + buildPipes() flow that
+  // was producing incorrect connections (2 pipes instead of 3 for Meydenbauer).
+  const network = buildConfirmedNetwork(records);
+  const structs = network.structures;         // Map — export-relevant structures only
+  const pipes = network.pipes;                // Array — confident/heuristic pipes only
+  const unresolvedPipes = network.unresolvedPipes || []; // Array — NOT exported as normal edges
+
+  // Calculate real-world coordinates for the network structures
+  const coords = calculateRealWorldCoordinates(records, structs);
+  for (const [id, coord] of coords) {
+    const s = structs.get(id);
+    if (s) { s.northing = coord.northing; s.easting = coord.easting; }
+  }
 
   if (structs.size === 0 && pipes.length === 0) return null;
 
@@ -717,7 +733,7 @@ export function recordsToLandXML(records, options = {}) {
   lines.push('  <PipeNetworks>');
   lines.push(`    <PipeNetwork name="${escXml(networkName)}" pipeNetType="Storm">`);
 
-  // ── Structs ──
+  // ── Structs (minimal clean export — only confirmed pipe-connected structures) ──
   lines.push('      <Structs>');
   for (const [, s] of structs) {
     lines.push(`        <Struct name="${escXml(s.id)}" desc="${escXml(s.desc)}">`);
@@ -727,25 +743,12 @@ export function recordsToLandXML(records, options = {}) {
       lines.push(`          <CircStruct diameter="${escXml(s.diameter)}" unit="inch" />`);
     }
 
-    // Center (Northing Easting, space-separated) — real-world coordinates
+    // Center (Northing Easting, space-separated)
     lines.push(`          <Center>${fmt(s.northing)} ${fmt(s.easting)}</Center>`);
 
-    // RIM as an invert with pipeRef="Rim"
-    if (s.rim != null) {
-      lines.push(`          <Invert pipeRef="Rim" elev="${fmt(s.rim)}" />`);
-    }
-
-    // Inverts from IE records — link to pipes where possible
-    for (let i = 0; i < s.inverts.length; i++) {
-      const inv = s.inverts[i];
-      const pipeRef = findPipeRefForInvert(pipes, s.id, inv) || `Inv-${i + 1}`;
-      lines.push(`          <Invert pipeRef="${escXml(pipeRef)}" elev="${fmt(inv.elevation)}" />`);
-    }
-
-    // Bottom of structure (sump)
-    if (s.bottom != null) {
-      lines.push(`          <Invert pipeRef="Sump" elev="${fmt(s.bottom)}" />`);
-    }
+    // MVP: ALL invert/rim/sump tags intentionally omitted.
+    // Invert bindings are not yet reliably matched to confirmed pipes.
+    // A clean geometry/connectivity export is better than noisy elevations.
 
     lines.push('        </Struct>');
   }
@@ -765,6 +768,16 @@ export function recordsToLandXML(records, options = {}) {
     lines.push('        </Pipe>');
   }
   lines.push('      </Pipes>');
+
+  // ── Unresolved pipes (not exported as normal edges — XML comments only) ──
+  if (unresolvedPipes.length > 0) {
+    lines.push('      <!-- Unresolved pipe runs omitted from export: -->');
+    for (const u of unresolvedPipes) {
+      const slopeStr = u.slope > 0 ? ` slope=${(u.slope * 100).toFixed(1)}%` : '';
+      lines.push(`      <!-- ${u.name} | ${u.length} LF | ${u.diameter}" ${u.material}${slopeStr} -->`);
+      lines.push(`      <!--   reason: ${u.warning || 'extreme mismatch to on-sheet trunk edges; likely extends off-sheet or requires multi-sheet context'} -->`);
+    }
+  }
 
   // ── Close elements ──
   lines.push('    </PipeNetwork>');

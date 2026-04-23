@@ -22,7 +22,7 @@
         "fullscreen": false,
         "decorations": false,
         "transparent": false,
-        "visible": false,
+        "visible": true,
         "backgroundColor": "#f5f5f5",
         "devtools": true
       }

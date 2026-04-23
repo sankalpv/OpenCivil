@@ -2871,7 +2871,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "open-pdf-studio"
+name = "opencivil"
 version = "1.43.0"
 dependencies = [
  "base64 0.22.1",

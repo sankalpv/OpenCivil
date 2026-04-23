@@ -10,6 +10,7 @@ import { drawArrowheadOnCanvas, applyBorderStyle, drawDimensionLineEnding } from
 import { drawDimension, drawMeasureAreaShape, drawCentroidLabel, drawMeasurePerimeterShape } from './rendering/measurements.js';
 import { applyHatchFill } from './rendering/hatch-patterns.js';
 import { getAnnotationType } from '../plugins/annotation-type-registry.js';
+import { renderNetworkOverlay } from '../aec/network-renderer.js';
 import { drawSelectionHandles } from './rendering/selection.js';
 import { updateQuickAccessButtons, updateContextualTabs, drawGrid, snapToGrid } from './rendering/ui-state.js';
 import { drawCommentIcon } from './rendering/comment-icons.js';
@@ -1332,6 +1333,9 @@ export function redrawAnnotations(lightweight = false) {
 
   // Draw watermarks in front of content
   renderWatermarksInFront(annotationCtx, curPage, annotationCanvas.width / effectiveScale, annotationCanvas.height / effectiveScale);
+
+  // Draw AEC network overlay (structures, pipes, unresolved pipes)
+  renderNetworkOverlay(annotationCtx);
 
   // Draw selection highlight and handles (use selectedAnnotations array as source of truth)
   const _renderDoc = getActiveDocument();

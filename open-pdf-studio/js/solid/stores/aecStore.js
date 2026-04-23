@@ -3,6 +3,9 @@
 
 import { createSignal } from 'solid-js';
 import { extractAecData, recordsToCsv, searchSpans, summarizeRecords } from '../../aec/aec-extractor.js';
+import { buildConfirmedNetwork } from '../../aec/network-builder.js';
+import { setNetworkGraph } from './aecNetworkStore.js';
+import { redrawAnnotations } from '../../annotations/rendering.js';
 import { groupByBoundingBox, structuresToCsv } from '../../aec/spatial-grouper.js';
 import { ocrAllPages } from '../../aec/ocr-extraction.js';
 import { aiExtractAllPages } from '../../aec/bedrock-ocr.js';
@@ -118,6 +121,15 @@ async function runExtraction() {
     setAecStatusMessage(
       `${records.length} records → ${structures.length} structures, ${ungrouped.length} ungrouped (${totalPages} pg, ${method})`
     );
+
+    // Auto-populate the network graph for overlay + review UI
+    try {
+      const graph = buildConfirmedNetwork(records);
+      setNetworkGraph(graph);
+      redrawAnnotations(); // Trigger canvas repaint to show network overlay
+    } catch (graphErr) {
+      console.warn('[AEC] Network graph build failed (non-fatal):', graphErr);
+    }
   } catch (err) {
     console.error('AEC extraction error:', err);
     setAecStatusMessage(`Extraction error: ${err.message || err}`);
@@ -268,6 +280,15 @@ async function runAiExtraction() {
     setAecStatusMessage(
       `AI: ${records.length} records → ${structures.length} structures (Claude Opus 4.7)`
     );
+
+    // Auto-populate the network graph for overlay + review UI
+    try {
+      const graph = buildConfirmedNetwork(records);
+      setNetworkGraph(graph);
+      redrawAnnotations(); // Trigger canvas repaint to show network overlay
+    } catch (graphErr) {
+      console.warn('[AEC] Network graph build failed (non-fatal):', graphErr);
+    }
   } catch (err) {
     console.error('AI extraction error:', err);
     setAecStatusMessage(`AI error: ${err.message || err}`);

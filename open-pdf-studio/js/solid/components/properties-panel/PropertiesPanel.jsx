@@ -3,6 +3,7 @@ import { panelVisible, panelCollapsed, setPanelCollapsed, annotProps, sectionVis
 import { useTranslation } from '../../../i18n/useTranslation.js';
 import PanelHeader from './PanelHeader.jsx';
 import DocInfoView from './DocInfoView.jsx';
+import AecNetworkInspector from './AecNetworkInspector.jsx';
 import GeneralSection from './GeneralSection.jsx';
 import RepliesSection from './RepliesSection.jsx';
 import AppearanceSection from './AppearanceSection.jsx';
@@ -39,6 +40,7 @@ export default function PropertiesPanel() {
           <div class="properties-panel visible" id="properties-panel">
             <PanelHeader />
             <DocInfoView />
+            <AecNetworkInspector />
             <GeneralSection />
             <RepliesSection />
             <AppearanceSection />

@@ -26,6 +26,8 @@ function redraw() {
 /**
  * Main pointer-down handler (replaces handleMouseDown + handleContinuousMouseDown)
  */
+import { handleNetworkClick } from '../aec/network-renderer.js';
+
 export function handlePointerDown(e) {
   if (!getActiveDocument()?.pdfDoc) return;
   if (isModalOpen()) return;
@@ -51,6 +53,15 @@ export function handlePointerDown(e) {
   }
 
   const coords = resolvePointerCoords(e);
+
+  // Network overlay click: try to select a pipe before normal annotation handling
+  if (e.button === 0 && state.currentTool === 'select') {
+    if (handleNetworkClick(coords.x, coords.y)) {
+      redraw();
+      return;
+    }
+  }
+
   const ctx = buildToolContext(e, coords);
 
   // Object snap start point, fall back to grid

@@ -246,6 +246,18 @@ export {
   setEmptyMessage as setTagEmptyMessage,
 } from './solid/stores/panels/tagsStore.js';
 
+// ============= AEC NETWORK REVIEW =============
+export {
+  setNetworkGraph,
+  getNetworkGraph,
+  networkGraphAvailable,
+  selectPipe as selectNetworkPipe,
+  selectUnresolvedPipe as selectUnresolvedNetworkPipe,
+  updatePipeConnection as updateNetworkPipeConnection,
+  promoteUnresolvedPipe as promoteUnresolvedNetworkPipe,
+  clearSelection as clearNetworkSelection,
+} from './solid/stores/aecNetworkStore.js';
+
 // ============= AI ASSISTANT =============
 export {
   aiPanelVisible,
